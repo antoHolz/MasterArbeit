@@ -85,19 +85,25 @@ if __name__ == "__main__":
     H = .1
     H_STEP = .05
     R = .3
-    INIT_XYZS = np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin(((i/6)*2*np.pi+np.pi/2)*2)/2, H+i*H_STEP] for i in range(ARGS.num_drones)])
+    INIT_XYZS = np.array([[0, 0, H+i*H_STEP] for i in range(ARGS.num_drones)])#np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin(((i/6)*2*np.pi+np.pi/2)*2)/2, H+i*H_STEP] for i in range(ARGS.num_drones)])
     INIT_RPYS = np.array([[0, 0,  i * (np.pi/2)/ARGS.num_drones] for i in range(ARGS.num_drones)])
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
 
     #### Initialize a 8-trayectory #############################
-    PERIOD = 6
-    NUM_WP = ARGS.control_freq_hz * PERIOD
+    PERIOD_8 = 6
+    RETURN_TIME= 2
+    PERIOD= PERIOD_8 + RETURN_TIME
+    NUM_WP = ARGS.control_freq_hz * PERIOD_8
+    NUM_R= ARGS.control_freq_hz * RETURN_TIME
     ROUND_STEPS= ARGS.simulation_freq_hz*PERIOD
-    TARGET_POS = np.zeros((NUM_WP, 3))
+    TARGET_POS = np.zeros((NUM_WP+NUM_R, 3))
     for i in range(NUM_WP):
         TARGET_POS[i, :] = R * np.cos((i / NUM_WP) * (2 * np.pi) + np.pi / 2) + INIT_XYZS[0, 0], R * np.sin(
             2*((i / NUM_WP) * (2 * np.pi) + np.pi / 2))/2 + INIT_XYZS[0, 1],  INIT_XYZS[0, 2]
-    wp_counters = np.array([int((i * NUM_WP / 6) % NUM_WP) for i in range(ARGS.num_drones)])
+    for i in range(NUM_R):
+        TARGET_POS[i+NUM_WP, :] = INIT_XYZS[0,:]
+
+    wp_counters = np.array([int((i * (NUM_WP+NUM_R) / 6) % (NUM_WP+NUM_R)) for i in range(ARGS.num_drones)])
     
     #### Debug trajectory ######################################
     #### Uncomment alt. target_pos in .computeControlFromState()
@@ -205,15 +211,16 @@ if __name__ == "__main__":
                                                                        target_rpy=INIT_RPYS[j, :]
                                                                        )
             #### x, u data for BO ##################
-            X_ist=np.hstack((np.array(obs[str(j)]["state"][0:7]),np.array(obs[str(j)]["state"][10:16])))
-            X_soll=np.hstack((np.array(TARGET_POS[wp_counters[j], 0:3]), np.zeros(10)))
-            
-            if(i%ROUND_STEPS==0):
-                x=np.abs(np.expand_dims((X_ist-X_soll),0))
-                u=np.abs(np.expand_dims(np.array(action[str(j)]),0))
-            else:
-                x=np.concatenate((x,np.expand_dims((X_ist-X_soll),0)))
-                u=np.concatenate((u,np.expand_dims(np.array(action[str(j)]),0)))
+            if(((i%ROUND_STEPS)/ROUND_STEPS)<(PERIOD_8/PERIOD)): #only count round, not return steps
+                X_ist=np.hstack((np.array(obs[str(j)]["state"][0:7]),np.array(obs[str(j)]["state"][10:16])))
+                X_soll=np.hstack((np.array(TARGET_POS[wp_counters[j], 0:3]), np.zeros(10)))
+                
+                if(i%ROUND_STEPS==0):
+                    x=np.abs(np.expand_dims((X_ist-X_soll),0))
+                    u=np.abs(np.expand_dims(np.array(action[str(j)]),0))
+                else:
+                    x=np.concatenate((x,np.expand_dims((X_ist-X_soll),0)))
+                    u=np.concatenate((u,np.expand_dims(np.array(action[str(j)]),0)))
               
 
             #### BO ################################
@@ -250,18 +257,18 @@ if __name__ == "__main__":
                     #### Measurement noise
                     noise_var = 0.01*y_0 #0.05 ** 2 #
                     #### Bounds on the inputs variable
-                    bounds = [(1e-6, 1e0), (1e-6, 1e0)]#, (.9, 1.25), (.02,.8), (.02, .8), (.02, .8)]
+                    bounds = [(0, 1e0), (0, 1e0)]#, (.9, 1.25), (.02,.8), (.02, .8), (.02, .8)]
                     #### Prior mean
-                    prior_mean= y_0*1.5
+                    prior_mean= -1
                     def constant(num):
                         return prior_mean
                     mf = GPy.core.Mapping(2,1)
                     mf.f = constant
                     mf.update_gradients = lambda a,b: None
                     #### Define Kernel
-                    lengthscale=(.05,.05)
+                    lengthscale=(.2,.2)
                     kernel = GPy.kern.src.stationary.Matern52(input_dim=len(bounds), 
-                            variance=(0.50*prior_mean)**2, lengthscale=lengthscale, ARD=2)
+                            variance=(0.4*prior_mean)**2, lengthscale=lengthscale, ARD=2)
                     # kernel = GPy.kern.RBF(input_dim=len(bounds), variance=0.2*y_0, lengthscale=lengthscale,
                     #     ARD=2)
 
@@ -270,11 +277,11 @@ if __name__ == "__main__":
                                                 kernel, noise_var=noise_var, mean_function=mf)
 
                     #### The optimization routine
-                    beta=1.5
+                    beta=1
                     mu_0, var_0= gp.predict(candidate)
                     omega_0=np.sqrt(var_0)
                     #omega_0=gp.posterior_covariance_between_points(candidate, candidate)
-                    J_min=(mu_0-beta*omega_0)
+                    J_min=(mu_0-beta*omega_0)*1.1
                     print("PRIOR MEAN: "+ str(prior_mean) +"     J_MIN: "+ str(J_min.item()))
                     opt = safeopt.SafeOptSwarm(gp, J_min, bounds=bounds, threshold=0.2, beta=beta)
 
@@ -295,7 +302,7 @@ if __name__ == "__main__":
 
 
                 #### Obtain next query point ##################               
-                if(int(i/(PERIOD*env.SIM_FREQ-0.5))>=(int(ARGS.duration_sec/PERIOD)-2)):
+                if(int(i/(PERIOD*env.SIM_FREQ-0.5))>=(int(ARGS.duration_sec/PERIOD)-1)):
                     #for last 2 rounds, take best model
                     candidate, _ = opt.get_maximum()
                     print("BEST CANDIDATE: "+str(candidate))
@@ -310,7 +317,7 @@ if __name__ == "__main__":
 
             #### Go to the next way point and loop #####################
             for j in range(ARGS.num_drones): 
-                wp_counters[j] = wp_counters[j] + 1 if wp_counters[j] < (NUM_WP-1) else 0
+                wp_counters[j] = wp_counters[j] + 1 if wp_counters[j] < (NUM_WP+NUM_R-1) else 0
 
         #### Log the simulation ####################################
         for j in range(ARGS.num_drones):
