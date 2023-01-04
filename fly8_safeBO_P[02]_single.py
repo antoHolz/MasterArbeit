@@ -96,6 +96,7 @@ if __name__ == "__main__":
     NUM_WP = ARGS.control_freq_hz * PERIOD_8
     NUM_R= ARGS.control_freq_hz * RETURN_TIME
     ROUND_STEPS= ARGS.simulation_freq_hz*PERIOD
+    print(ROUND_STEPS)
     TARGET_POS = np.zeros((NUM_WP+NUM_R, 3))
     for i in range(NUM_WP):
         TARGET_POS[i, :] = R * np.cos((i / NUM_WP) * (2 * np.pi) + np.pi / 2) + INIT_XYZS[0, 0], R * np.sin(
@@ -224,12 +225,10 @@ if __name__ == "__main__":
                     x=np.concatenate((x,np.expand_dims((X_ist-X_soll),0)))
                     u=np.concatenate((u,np.expand_dims(np.array(action[str(j)]),0)))
               
-
-            #### BO ################################
- 
-            if(((i+CTRL_EVERY_N_STEPS)%ROUND_STEPS) == 0):
+            #### calculate performance ############# 
+            if(((i+CTRL_EVERY_N_STEPS)>=ROUND_STEPS) & (((i+CTRL_EVERY_N_STEPS)%ROUND_STEPS) == 0)):
                 #### Calculate performance metric (cost) #### 
-                if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1):
+                if(int((i+CTRL_EVERY_N_STEPS)/ROUND_STEPS)==1):
                     xmax_0=np.max(x,axis=0)
                     umax=env.MAX_RPM # torch.max(u)
                     umin=0 # torch.min(u)
@@ -237,24 +236,29 @@ if __name__ == "__main__":
                 for k in range(u.shape[1]): u[:,k]=(u[:,k]-umin)/(umax-umin)
                 performance=-np.diagonal(np.matmul(np.matmul(x,Q),x.T) +np.matmul(np.matmul(u,R),u.T))
                 #Cost normalization
-                if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1): 
+                if(int((i+CTRL_EVERY_N_STEPS)/ROUND_STEPS)==1): 
                     ynorm=np.max(np.abs(performance)) #linalg.norm(performance) 
                 normalized_cost=np.expand_dims(np.expand_dims(np.array(performance.mean()/ynorm),0),0) 
 
                 #### Save old candidate####### (ignore, save for csv)
-                if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1):
+                if(int((i+CTRL_EVERY_N_STEPS)/ROUND_STEPS)==1):
                     Theta=np.expand_dims(np.array(PID_coeff[0][0:2]).flatten(),0)
                     Y=normalized_cost 
                 else:
                     Theta=np.concatenate((Theta, np.expand_dims(np.array(PID_coeff[0][0:2]).flatten(),0)),axis=0)
                     Y=np.concatenate((Y, normalized_cost),0)
+
                 #Output of round performance infos
                 print( "Round " +str(int(i/(PERIOD*env.SIM_FREQ)))+ "/" +str(int(ARGS.duration_sec/PERIOD)-1)
                         + " cost :" + str(performance.mean().item()) 
                         + " ("+str((normalized_cost).item())+")" )
                 
+
+            #### BO ################################
+ 
+            if((i>=ROUND_STEPS) & ((i%ROUND_STEPS) == 0)):
                 #### Fit new GP ###################
-                if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1):
+                if(int(i/ROUND_STEPS)==1):
                     #### Measurement noise
                     noise_var = 0.01*normalized_cost.squeeze() #0.05 ** 2 #
                     #### Bounds on the input variables
@@ -306,13 +310,14 @@ if __name__ == "__main__":
                 # max_var=np.maximum(std_maxi.max(), std_exp.max())
                 # print(max_var)
 
-
                 #### Obtain next query point ##################               
-                if(int(i/(PERIOD*env.SIM_FREQ-0.5))>=(int(ARGS.duration_sec/PERIOD)-1)):
+                if(int(i/ROUND_STEPS)>=(int(ARGS.duration_sec/PERIOD)-1)):
                     #for last round, take best model
+                    print(i)
                     n_candidate, _ = opt.get_maximum()
                     print("BEST CANDIDATE: "+str(candidate))
                 else:
+                    print(i)
                     n_candidate = opt.optimize()#ucb=True)  
                     print("NEW CANDIDATE: "+str(candidate))#+ "   acquisition value: "+str(acq_value.item()))
 
