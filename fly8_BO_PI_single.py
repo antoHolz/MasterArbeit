@@ -34,7 +34,7 @@ import torch
 from botorch.models import SingleTaskGP
 from botorch.fit import fit_gpytorch_mll
 from gpytorch.mlls import ExactMarginalLogLikelihood
-from botorch.acquisition import ExpectedImprovement, ProbabilityOfImprovement, UpperConfidenceBound
+from botorch.acquisition import ExpectedImprovement, ProbabilityOfImprovement, UpperConfidenceBound, PosteriorMean
 from botorch.optim import optimize_acqf
 
 import sys
@@ -64,23 +64,31 @@ if __name__ == "__main__":
     parser.add_argument('--obstacles',          default=True,       type=str2bool,      help='Whether to add obstacles to the environment (default: True)', metavar='')
     parser.add_argument('--simulation_freq_hz', default=240,        type=int,           help='Simulation frequency in Hz (default: 240)', metavar='')
     parser.add_argument('--control_freq_hz',    default=48,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
-    parser.add_argument('--duration_sec',       default=66,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
+    parser.add_argument('--duration_sec',       default=18,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
     ARGS = parser.parse_args()
 
     #### Initialize the simulation #############################
     H = .1
     H_STEP = .05
-    R = .3
-    INIT_XYZS = np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin(((i/6)*2*np.pi+np.pi/2)*2)/2, H+i*H_STEP] for i in range(ARGS.num_drones)])
+    RD = .3
+    INIT_XYZS = np.array([[RD*np.cos((i/6)*2*np.pi+np.pi/2), RD*np.sin(((i/6)*2*np.pi+np.pi/2)*2)/2, H+i*H_STEP] for i in range(ARGS.num_drones)])
     INIT_RPYS = np.array([[0, 0,  i * (np.pi/2)/ARGS.num_drones] for i in range(ARGS.num_drones)])
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
 
-    #### Initialize a circular trajectory ######################
+    # #### Initialize the simulation for circular trajectory #############################
+    # H = .1
+    # H_STEP = .05
+    # RD = .3
+    # INIT_XYZS = np.array([[0, 0, H+i*H_STEP] for i in range(ARGS.num_drones)])
+    # INIT_RPYS = np.array([[0, 0,  0] for i in range(ARGS.num_drones)])
+    # AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
+
+    # #### Initialize a circular trajectory ######################
     #PERIOD = 10
     #NUM_WP = ARGS.control_freq_hz*PERIOD
     #TARGET_POS = np.zeros((NUM_WP,3))
     #for i in range(NUM_WP):
-    #    TARGET_POS[i, :] = R*np.cos((i/NUM_WP)*(2*np.pi)+np.pi/2)+INIT_XYZS[0, 0], R*np.sin((i/NUM_WP)*(2*np.pi)+np.pi/2)-R+INIT_XYZS[0, 1], 0
+    #    TARGET_POS[i, :] = RD*np.cos((i/NUM_WP)*(2*np.pi)+np.pi/2)+INIT_XYZS[0, 0], RD*np.sin((i/NUM_WP)*(2*np.pi)+np.pi/2)-R+INIT_XYZS[0, 1], 0
     #wp_counters = np.array([int((i*NUM_WP/6)%NUM_WP) for i in range(ARGS.num_drones)])
 
     #### Initialize a 8-trayectory #############################
@@ -89,8 +97,8 @@ if __name__ == "__main__":
     ROUND_STEPS= ARGS.simulation_freq_hz*PERIOD
     TARGET_POS = np.zeros((NUM_WP, 3))
     for i in range(NUM_WP):
-        TARGET_POS[i, :] = R * np.cos((i / NUM_WP) * (2 * np.pi) + np.pi / 2) + INIT_XYZS[0, 0], R * np.sin(
-            2*((i / NUM_WP) * (2 * np.pi) + np.pi / 2))/2 + INIT_XYZS[0, 1], H+i*H_STEP
+        TARGET_POS[i, :] = RD * np.cos((i / NUM_WP) * (2 * np.pi) + np.pi / 2) + INIT_XYZS[0, 0], RD * np.sin(
+            2*((i / NUM_WP) * (2 * np.pi) + np.pi / 2))/2 + INIT_XYZS[0, 1],  INIT_XYZS[0, 2]
     wp_counters = np.array([int((i * NUM_WP / 6) % NUM_WP) for i in range(ARGS.num_drones)])
     
     #### Debug trajectory ######################################
@@ -150,9 +158,6 @@ if __name__ == "__main__":
     logger = Logger(logging_freq_hz=int(ARGS.simulation_freq_hz/AGGR_PHY_STEPS),
                     num_drones=ARGS.num_drones
                     )
-    ## Variable for saving PID candidates and performance
-    candidates=pd.DataFrame()
-    performance=torch.empty([1, 1])
 
     #### Initialize the controllers ############################
     if ARGS.drone in [DroneModel.CF2X, DroneModel.CF2P]:
@@ -165,19 +170,19 @@ if __name__ == "__main__":
     action = {str(i): np.array([0,0,0,0]) for i in range(ARGS.num_drones)}
     START = time.time()
     
-    ## BO in the simulation ##################################
-    #M= 12 #PID_UPDATE_EVERY_N*M_STEPS
-    PID_coeff=np.array([[0.01, .01, 0.01],[.05, .05, .05],[.2, .2, .5],[70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]])
-    candidate=PID_coeff[0:2].flatten()
+    #### BO in the simulation ##################################
+    PID_coeff=np.array([[.01, .01, .8],[.02, .02, .02],[.2, .2, .5],[70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]])
     # Default param: [[.4, .4, 1.25],[.05, .05, .05],[.2, .2, .5],[70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]])
     
-
     for i in range(ARGS.num_drones):
         ctrl[i].setPIDCoefficients(*PID_coeff) 
+
     Theta=torch.Tensor([]).double()
     Y=torch.Tensor([]).double()
-    Q=torch.eye(13)*torch.Tensor([100, 100, 100, 10, 10, 10, 10, 1, 1, 1, 1, 1, 1])
-    R=torch.eye(4)*torch.Tensor([1, 1, 1, 1])
+    # Matrix for LQR cost
+    Q=torch.eye(13)*torch.Tensor([100, 100, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    R_coeff=100
+    R=R_coeff*torch.eye(4)
 
     ############################################################
 
@@ -200,53 +205,80 @@ if __name__ == "__main__":
                                                                        # target_pos=INIT_XYZS[j, :] + TARGET_POS[wp_counters[j], :],
                                                                        target_rpy=INIT_RPYS[j, :]
                                                                        )
-            #### Compute cost for BO ##################
+            #### x, u data for BO ##################
             X_ist=torch.hstack((torch.Tensor(obs[str(j)]["state"][0:7]),torch.Tensor(obs[str(j)]["state"][10:16])))
             X_soll=torch.hstack((torch.Tensor(TARGET_POS[wp_counters[j], 0:3]), torch.zeros(10)))
-            x=X_ist-X_soll
-            u=torch.Tensor(action[str(j)])
-            Cost=-(torch.matmul(torch.matmul(x,Q),x) +torch.matmul(torch.matmul(u,R),u)) 
-            performance=torch.cat((performance, Cost.unsqueeze(0).unsqueeze(0)))           
             
+            if(i%ROUND_STEPS==0):
+                x=torch.abs((X_ist-X_soll).unsqueeze(0))
+                u=torch.abs(torch.Tensor(action[str(j)]).unsqueeze(0))
+            else:
+                x=torch.cat((x,(X_ist-X_soll).unsqueeze(0)))
+                u=torch.cat((u,torch.Tensor(action[str(j)]).unsqueeze(0)))
+              
+
             #### BO ################################
-            Theta=torch.cat((Theta, torch.flatten(torch.Tensor(PID_coeff[0:2])).unsqueeze(0)),0)
-            Y=torch.cat((Y, torch.Tensor(Cost).unsqueeze(0).unsqueeze(0)),0)
+ 
+            if(((i+CTRL_EVERY_N_STEPS)%ROUND_STEPS) == 0):
+                #### Scale x and u #################
+                if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1):
+                    xmax=torch.max(x,dim=0).values
+                    umax=env.MAX_RPM
+                for k in range(x.shape[1]): x[:,k]=(x[:,k])/xmax[k]
+                for k in range(u.shape[1]): u[:,k]=(u[:,k])/(umax)
+                #### Calculate performance metric (cost) ####
+                performance=-torch.diagonal(torch.matmul(torch.matmul(x,Q),x.T) +torch.matmul(torch.matmul(u,R),u.T))
+                
+                #### Save old candidate##############
+                Theta=torch.cat((Theta, torch.flatten(torch.Tensor(PID_coeff[0:2])).unsqueeze(0)),0)
+                Y=torch.cat((Y, performance.mean().unsqueeze(0).unsqueeze(0)),0)
+                #### Standardize Y for training? ####
+                # if(Y.squeeze().std()>0): 
+                #     Y_train=(Y - Y.squeeze().mean()) / Y.squeeze().std()
+                # else:
+                #     Y_train=Y/torch.norm(Y)
+                Y_train=Y
+                
+                print("Round " +str(int(i/(PERIOD*env.SIM_FREQ)))+ " of " 
+                        +str(int(ARGS.duration_sec/PERIOD)-1)
+                        + " cost :" + str(performance.mean().item())
+                )#+ " (" + str(Y_train[int(i/(PERIOD*env.SIM_FREQ))].item()) +")") #only necessary for standardized Y
+                
+                #### Fit new GP ###################
+                gp = SingleTaskGP(Theta, Y_train)
+                mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+                fit_gpytorch_mll(mll);
+                
+                #### Print model data ###################
+                # print(
+                #     "lengthscale: " +str(gp.covar_module.base_kernel.lengthscale)+ 
+                #     "\nnoise: " + str(gp.likelihood.noise) 
+                #     )
 
-            if (i%ARGS.control_freq_hz == 0):
-                print("Cost :" + str(Cost))
-
-            #### Save old candidate in dataframe #######################
-            if(((i+CTRL_EVERY_N_STEPS)%(ROUND_STEPS)) == 0):
-                candidates[str(candidate.squeeze().tolist())]=pd.Series(performance.squeeze())
-                performance=torch.empty([1, 1])
-
-            if ((Y.shape[0]>1) & (i%(ROUND_STEPS) == 0) ):
-                if(int(i/(PERIOD*env.SIM_FREQ-0.5))!=(int(ARGS.duration_sec/PERIOD)-1)):
-                    print("round: "+str(int(i/(PERIOD*env.SIM_FREQ)))+"   max rounds:"+str(int(ARGS.duration_sec/PERIOD)))
-                    #### Fit new GP to produce new candidate ###################
-                    Y_train=(Y - Y.squeeze().mean()) / Y.squeeze().std()
-                    gp = SingleTaskGP(Theta, Y_train)
-                    mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
-                    fit_gpytorch_mll(mll);
+                if(int(i/(PERIOD*env.SIM_FREQ-0.5))<(int(ARGS.duration_sec/PERIOD)-1)):
+                    #### produce new candidate (maximize aquisition function) ##############
                     #EI =ExpectedImprovement(gp, max(Y_train))
                     C1=0.8
                     C2=4
                     UCB =UpperConfidenceBound(gp, beta=C1*np.log(C2*i))
 
-                    bounds = torch.stack([torch.Tensor([0.2,0.2,0.9,.03,.03,.03]), torch.Tensor([0.6,0.6,1.25,.08,.08,.08])])
+                    bounds = torch.stack([torch.Tensor([0.2,0.2,0.9, 0.02, 0.02, 0.02]), torch.Tensor([0.5,0.5,1.25, 0.08, 0.08, 0.08])])
                     candidate, acq_value = optimize_acqf(
                         UCB, bounds=bounds, q=1, num_restarts=5, raw_samples=20,
                         )
-                    print("NEW CANDIDATE: "+str(candidate)+ "   aquisition value: "+str(acq_value))
-                
-                else:
-                    best_candidate_str=candidates.mean().idxmax(axis=0)
-                    candidate=torch.Tensor([float(s) for s in best_candidate_str.replace(',','').replace('[','').replace(']','').split()])
-                    print(candidates.mean())
-                    print("BEST CANDIDATE: "+ str(candidate))
+                    print("NEW CANDIDATE: "+str(candidate)+ "   acquisition value: "+str(acq_value.item()))
+
+                elif(int(i/(PERIOD*env.SIM_FREQ-0.5))==(int(ARGS.duration_sec/PERIOD)-1)):
+                    #### Get best candidate according to global reward ####
+                    PM = PosteriorMean(gp)
+                    bounds = torch.stack([torch.Tensor([0.2,0.2,0.9, 0.02, 0.02, 0.02]), torch.Tensor([0.5,0.5,1.25, 0.08, 0.08, 0.08])])
+                    candidate, acq_value = optimize_acqf(
+                        PM, bounds=bounds, q=1, num_restarts=5, raw_samples=20,
+                        )
+                    print("BEST CANDIDATE: "+ str(candidate)+ "   acquisition value: "+str(acq_value.item()))
 
                 #### Set new PID parameters ################################
-                PID_coeff[0:2]=np.reshape(np.array(candidate.squeeze()),[2,3])
+                PID_coeff[0:2]=np.reshape(np.array(candidate.squeeze()),PID_coeff[0:2].shape)
                 ctrl[j].setPIDCoefficients(*PID_coeff)        
                 
 
@@ -264,15 +296,15 @@ if __name__ == "__main__":
                        )
 
         #### Printout ##############################################
-        if i%env.SIM_FREQ == 0:
-            env.render()
-            #### Print matrices with the images captured by each drone #
-            if ARGS.vision:
-                for j in range(ARGS.num_drones):
-                    print(obs[str(j)]["rgb"].shape, np.average(obs[str(j)]["rgb"]),
-                          obs[str(j)]["dep"].shape, np.average(obs[str(j)]["dep"]),
-                          obs[str(j)]["seg"].shape, np.average(obs[str(j)]["seg"])
-                          )
+        # if i%env.SIM_FREQ == 0:
+        #     env.render()
+        #     #### Print matrices with the images captured by each drone #
+        #     if ARGS.vision:
+        #         for j in range(ARGS.num_drones):
+        #             print(obs[str(j)]["rgb"].shape, np.average(obs[str(j)]["rgb"]),
+        #                   obs[str(j)]["dep"].shape, np.average(obs[str(j)]["dep"]),
+        #                   obs[str(j)]["seg"].shape, np.average(obs[str(j)]["seg"])
+        #                   )
 
         #### Sync the simulation ###################################
         if ARGS.gui:
@@ -288,9 +320,11 @@ if __name__ == "__main__":
     #candidates.to_csv(os.environ.get('HOME')+"/Desktop/save-flight-"+"pid_BO"+"-"+datetime.now().strftime("%m.%d.%Y_%H.%M")+'/candidate_performance.csv')
     
     ## custom save with added performance metric
-    R_MATRIX="10"
+    theta_save=[str(Theta.numpy()[i]) for i in range(Theta.shape[0])]
+    candidates=pd.DataFrame(np.vstack((theta_save,Y.numpy().squeeze(), Y_train.numpy().squeeze())))
     AQUISITION_F="UCB_c1_0.8_c2_4"
     PID_START="0.01"
+    R_MATRIX=str(R_coeff)
     NR_ROUNDS=str(int(ARGS.duration_sec/PERIOD))
     FILENAME="pid_BO"+"_R_"+R_MATRIX+"_alpha_"+AQUISITION_F+"_start_PI_"+PID_START+"_rounds_"+NR_ROUNDS
     logger.save_as_csv_w_performance(FILENAME, candidates)

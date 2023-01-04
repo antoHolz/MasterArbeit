@@ -25,10 +25,8 @@ import random
 import numpy as np
 import pybullet as p
 import matplotlib.pyplot as plt
-
 import pandas as pd
-import time
-from datetime import datetime
+
 
 import torch
 from botorch.models import SingleTaskGP
@@ -173,7 +171,7 @@ if __name__ == "__main__":
     Y=torch.Tensor([]).double()
     # Matrix for LQR cost
     Q=torch.eye(13)*torch.Tensor([100, 100, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-    R_coeff=0.0001
+    R_coeff=50000
     R=R_coeff*torch.eye(4)
 
     ############################################################
@@ -197,30 +195,48 @@ if __name__ == "__main__":
                                                                        # target_pos=INIT_XYZS[j, :] + TARGET_POS[wp_counters[j], :],
                                                                        target_rpy=INIT_RPYS[j, :]
                                                                        )
-            #### Compute cost for BO ##################
+            #### x, u data for BO ##################
             X_ist=torch.hstack((torch.Tensor(obs[str(j)]["state"][0:7]),torch.Tensor(obs[str(j)]["state"][10:16])))
             X_soll=torch.hstack((torch.Tensor(TARGET_POS[wp_counters[j], 0:3]), torch.zeros(10)))
-            x=torch.abs(X_ist-X_soll)
-            u=torch.abs(torch.Tensor(action[str(j)]))
-            Cost=-(torch.matmul(torch.matmul(x,Q),x) +torch.matmul(torch.matmul(u,R),u)) 
             
             if(i%ROUND_STEPS==0):
-                performance=Cost.unsqueeze(0).unsqueeze(0)
+                x=(X_ist-X_soll).unsqueeze(0)
+                u=torch.Tensor(action[str(j)]).unsqueeze(0)
             else:
-                performance=torch.cat((performance, Cost.unsqueeze(0).unsqueeze(0)))           
+                x=torch.cat((x,(X_ist-X_soll).unsqueeze(0)))
+                u=torch.cat((u,torch.Tensor(action[str(j)]).unsqueeze(0)))
+              
 
             #### BO ################################
  
             if(((i+CTRL_EVERY_N_STEPS)%ROUND_STEPS) == 0):
-                #### Save old candidate in dataframe ####
+                #### Calculate performance metric (cost) ####
+                if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1):
+                    xmax=torch.max(x,dim=0).values
+                    #xmin=torch.min(x,dim=0).values #should be 0 (??)
+                    umax=env.MAX_RPM
+                    #umin=torch.min(u,dim=0).values #should be 0 (??)
+                for k in range(x.shape[1]): x[:,k]=(x[:,k])/(xmax[k])
+                for k in range(u.shape[1]): u[:,k]=(u[:,k])/(umax) #(u[:,k]-umin[k])/(umax[k]-umin[k])
+                #for k in range(x.shape[1]): x[:,k]=(x[:,k]-x[:,k].mean())/x[:,k].std() 
+                #for k in range(u.shape[1]): u[:,k]=(u[:,k]-u[:,k].mean())/u[:,k].std() 
+                # for k in range(x.shape[1]): x[:,k]=(x[:,k]-torch.min(x[:,k]))/(torch.max(x[:,k])-torch.min(x[:,k]))
+                # for k in range(u.shape[1]): u[:,k]=(u[:,k]-torch.min(u[:,k]))/(torch.max(u[:,k])-torch.min(u[:,k]))
+              
+                performance=-torch.diagonal(torch.matmul(torch.matmul(x,Q),x.T) +torch.matmul(torch.matmul(u,R),u.T))
+                
+                #### Save old candidate  and standardize####
                 Theta=torch.cat((Theta, torch.flatten(torch.Tensor(PID_coeff[0])).unsqueeze(0)),0)
                 Y=torch.cat((Y, performance.mean().unsqueeze(0).unsqueeze(0)),0)
+                
+                if(Y.squeeze().std()>0): 
+                    Y_train=(Y - Y.squeeze().mean()) / Y.squeeze().std()
+                else:
+                    Y_train=Y #0?
+
                 print("Round " +str(int(i/(PERIOD*env.SIM_FREQ)))+ " of " +str(int(ARGS.duration_sec/PERIOD)-1)+ " cost :" + str(performance.mean().item()))
                 
-
-            if ((Y.shape[0]>1) & (((i+CTRL_EVERY_N_STEPS)%ROUND_STEPS) == 0) ):
                 #### Fit new GP ###################
-                Y_train=(Y - Y.squeeze().mean()) / Y.squeeze().std()
                 gp = SingleTaskGP(Theta, Y_train)
                 mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
                 fit_gpytorch_mll(mll);
@@ -230,8 +246,8 @@ if __name__ == "__main__":
                     #     "noise: " + str(gp.likelihood.noise) 
                     #  )
 
-                if(int(i/(PERIOD*env.SIM_FREQ-0.5))!=(int(ARGS.duration_sec/PERIOD)-1)):
-                    #### produce new candidate ##############
+                if(int(i/(PERIOD*env.SIM_FREQ-0.5))<(int(ARGS.duration_sec/PERIOD)-1)):
+                    #### produce new candidate (maximize aquisition function) ##############
                     #EI =ExpectedImprovement(gp, max(Y_train))
                     C1=0.8
                     C2=4
@@ -243,7 +259,7 @@ if __name__ == "__main__":
                         )
                     print("NEW CANDIDATE: "+str(candidate)+ "   acquisition value: "+str(acq_value.item()))
 
-                else:
+                elif(int(i/(PERIOD*env.SIM_FREQ-0.5))==(int(ARGS.duration_sec/PERIOD)-1)):
                 #     candidate=Theta[torch.argmax(Y)]  
                     PM = PosteriorMean(gp)
                     bounds = torch.stack([torch.Tensor([0.2,0.2,0.9]), torch.Tensor([0.5,0.5,1.25])])
@@ -296,7 +312,7 @@ if __name__ == "__main__":
     
     ## custom save with added performance metric
     theta_save=[str(Theta.numpy()[i]) for i in range(Theta.shape[0])]
-    candidates=pd.DataFrame(np.vstack((theta_save,Y.numpy().squeeze(),Y_train.numpy().squeeze())))
+    candidates=pd.DataFrame(np.vstack((theta_save,Y.numpy().squeeze(), Y_train.numpy().squeeze())))
     AQUISITION_F="UCB_c1_0.8_c2_4"
     PID_START="0.01"
     R_MATRIX=str(R_coeff)

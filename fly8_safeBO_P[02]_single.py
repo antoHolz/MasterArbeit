@@ -18,21 +18,18 @@ in the X-Y plane, around point (0, -.3).
 import os
 import time
 import argparse
-from datetime import datetime
-import pdb
-import math
-import random
+# from datetime import datetime
+# import pdb
+# import math
+# import random
+import matplotlib.pyplot as plt
 import numpy as np
 import pybullet as p
-import matplotlib.pyplot as plt
-
 import pandas as pd
-import time
-from datetime import datetime
 
 import GPy
 import safeopt
-import torch
+import logging
 
 import sys
 sys.path.insert(0, "C:/Users/Usuario/Documents/Masterarbeit/code/gym-pybullet-drones-1.0.0")
@@ -44,6 +41,7 @@ from gym_pybullet_drones.control.DSLPIDControl import DSLPIDControl
 from gym_pybullet_drones.control.SimplePIDControl import SimplePIDControl
 from gym_pybullet_drones.utils.Logger import Logger
 from gym_pybullet_drones.utils.utils import sync, str2bool
+
 
 if __name__ == "__main__":
 
@@ -63,6 +61,10 @@ if __name__ == "__main__":
     parser.add_argument('--control_freq_hz',    default=48,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
     parser.add_argument('--duration_sec',       default=18,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
     ARGS = parser.parse_args()
+
+    #### Change logging level
+    # logging.basicConfig(level=logging.INFO)
+
 
     # #### Initialize the simulation for circular trajectory #############################
     # H = .1
@@ -239,37 +241,58 @@ if __name__ == "__main__":
                     Theta=np.concatenate((Theta, np.expand_dims(np.array(PID_coeff[0][0:2]).flatten(),0)),axis=0)
                     Y=np.concatenate((Y, normalized_cost),0)
 
-                print( "Round " +str(int(i/(PERIOD*env.SIM_FREQ)))+ " of " +str(int(ARGS.duration_sec/PERIOD)-1)
+                print( "Round " +str(int(i/(PERIOD*env.SIM_FREQ)))+ "/" +str(int(ARGS.duration_sec/PERIOD)-1)
                         + " cost :" + str(performance.mean().item()) 
                         + " ("+str((normalized_cost).item())+")" )
                 
                 #### Fit new GP ###################
                 if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1):
-                    # Measurement noise
-                    noise_var = 0.05*y_0 #0.05 ** 2 #
-                    # Bounds on the inputs variable
-                    bounds = [(1e-1, 0.5e0), (1e-1, 0.5e0)]#, (.9, 1.25), (.02,.8), (.02, .8), (.02, .8)]
-                    # Define Kernel
-                    kernel = GPy.kern.RBF(input_dim=len(bounds), variance=0.2*y_0, lengthscale=(.05,.05),
-                        ARD=2)
-                    # The statistical model of our objective function
-                    gp = GPy.models.GPRegression(candidate, normalized_cost, kernel, noise_var=noise_var)
+                    #### Measurement noise
+                    noise_var = 0.01*y_0 #0.05 ** 2 #
+                    #### Bounds on the inputs variable
+                    bounds = [(1e-6, 1e0), (1e-6, 1e0)]#, (.9, 1.25), (.02,.8), (.02, .8), (.02, .8)]
+                    #### Prior mean
+                    prior_mean= y_0*1.5
+                    def constant(num):
+                        return prior_mean
+                    mf = GPy.core.Mapping(2,1)
+                    mf.f = constant
+                    mf.update_gradients = lambda a,b: None
+                    #### Define Kernel
+                    lengthscale=(.05,.05)
+                    kernel = GPy.kern.src.stationary.Matern52(input_dim=len(bounds), 
+                            variance=(0.50*prior_mean)**2, lengthscale=lengthscale, ARD=2)
+                    # kernel = GPy.kern.RBF(input_dim=len(bounds), variance=0.2*y_0, lengthscale=lengthscale,
+                    #     ARD=2)
 
-                    # The optimization routine
-                    opt = safeopt.SafeOptSwarm(gp, -.75, bounds=bounds, threshold=0.5, beta=2)
+                    #### The statistical model of our objective function
+                    gp = GPy.models.GPRegression(candidate, normalized_cost, 
+                                                kernel, noise_var=noise_var, mean_function=mf)
+
+                    #### The optimization routine
+                    beta=1.5
+                    mu_0, var_0= gp.predict(candidate)
+                    omega_0=np.sqrt(var_0)
+                    #omega_0=gp.posterior_covariance_between_points(candidate, candidate)
+                    J_min=(mu_0-beta*omega_0)
+                    print("PRIOR MEAN: "+ str(prior_mean) +"     J_MIN: "+ str(J_min.item()))
+                    opt = safeopt.SafeOptSwarm(gp, J_min, bounds=bounds, threshold=0.2, beta=beta)
 
                 else:
                     # Add new point to the GP model
                     opt.add_new_data_point(candidate,  normalized_cost) 
 
-                # opt.plot(100, plot_3d=False)
-                # plt.show()
-                
-                #### model data ###################
-                # print(
-                #     "lengthscale: " +str(gp.covar_module.base_kernel.lengthscale)+ 
-                #     "noise: " + str(gp.likelihood.noise) 
-                #     )
+                #### GP-Plot ######################
+                # if(int(i/(PERIOD*env.SIM_FREQ-0.5))>350):
+                #     opt.plot(100, plot_3d=False)
+                #     plt.show()
+
+                # #### get maximum variance ####
+                # x_maxi, std_maxi = opt.get_new_query_point('maximizers')
+                # x_exp, std_exp = opt.get_new_query_point('expanders')
+                # max_var=np.maximum(std_maxi.max(), std_exp.max())
+                # print(max_var)
+
 
                 #### Obtain next query point ##################               
                 if(int(i/(PERIOD*env.SIM_FREQ-0.5))>=(int(ARGS.duration_sec/PERIOD)-2)):
@@ -277,7 +300,7 @@ if __name__ == "__main__":
                     candidate, _ = opt.get_maximum()
                     print("BEST CANDIDATE: "+str(candidate))
                 else:
-                    candidate = opt.optimize()  
+                    candidate = opt.optimize()#ucb=True)  
                     print("NEW CANDIDATE: "+str(candidate))#+ "   acquisition value: "+str(acq_value.item()))
 
                 #### Set new PID parameters ################################
@@ -329,9 +352,11 @@ if __name__ == "__main__":
     PID_START="0.01"
     R_MATRIX=str(R_coeff)
     NR_ROUNDS=str(int(ARGS.duration_sec/PERIOD))
-    FILENAME="pid_safeBO"+"_R_"+R_MATRIX+"_alpha_"+AQUISITION_F+"_start_PI_"+PID_START+"_rounds_"+NR_ROUNDS
+    FILENAME="pid_safeBO"+"_matern52"+"_R_"+R_MATRIX+"_alpha_"+AQUISITION_F+"_start_PI_"+PID_START+"_rounds_"+NR_ROUNDS
     logger.save_as_csv_w_performance(FILENAME, candidates)
 
     #### Plot the simulation results ###########################
     if ARGS.plot:
         logger.plot()
+
+
