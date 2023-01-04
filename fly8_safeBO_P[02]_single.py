@@ -237,7 +237,6 @@ if __name__ == "__main__":
                 
                 if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1): 
                     ynorm=np.max(np.abs(performance)) #linalg.norm(performance) 
-                    y_0=performance.mean()/ynorm
                 normalized_cost=np.expand_dims(np.expand_dims(np.array(performance.mean()/ynorm),0),0) 
 
                 #### Save old candidate  and normalize ####### (ignore, save for csv)
@@ -247,7 +246,7 @@ if __name__ == "__main__":
                 else:
                     Theta=np.concatenate((Theta, np.expand_dims(np.array(PID_coeff[0][0:2]).flatten(),0)),axis=0)
                     Y=np.concatenate((Y, normalized_cost),0)
-
+                #Output of round performance infos
                 print( "Round " +str(int(i/(PERIOD*env.SIM_FREQ)))+ "/" +str(int(ARGS.duration_sec/PERIOD)-1)
                         + " cost :" + str(performance.mean().item()) 
                         + " ("+str((normalized_cost).item())+")" )
@@ -255,9 +254,12 @@ if __name__ == "__main__":
                 #### Fit new GP ###################
                 if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1):
                     #### Measurement noise
-                    noise_var = 0.01*y_0 #0.05 ** 2 #
-                    #### Bounds on the inputs variable
-                    bounds = [(0, 1e0), (0, 1e0)]#, (.9, 1.25), (.02,.8), (.02, .8), (.02, .8)]
+                    noise_var = 0.01*normalized_cost.squeeze() #0.05 ** 2 #
+                    #### Bounds on the input variables
+                    bounds = [(0, 2e0), (0, 2e0)]#, (.9, 1.25), (.02,.8), (.02, .8), (.02, .8)]
+                    theta_norm=[b[1]-b[0] for b in bounds]
+                    n_candidate=np.divide(candidate.squeeze(),theta_norm)
+                    n_candidate=np.expand_dims(n_candidate, 0)
                     #### Prior mean
                     prior_mean= -1
                     def constant(num):
@@ -266,19 +268,19 @@ if __name__ == "__main__":
                     mf.f = constant
                     mf.update_gradients = lambda a,b: None
                     #### Define Kernel
-                    lengthscale=(.2,.2)
+                    lengthscale=[0.2/l for l in theta_norm]
                     kernel = GPy.kern.src.stationary.Matern52(input_dim=len(bounds), 
                             variance=(0.4*prior_mean)**2, lengthscale=lengthscale, ARD=2)
                     # kernel = GPy.kern.RBF(input_dim=len(bounds), variance=0.2*y_0, lengthscale=lengthscale,
                     #     ARD=2)
 
                     #### The statistical model of our objective function
-                    gp = GPy.models.GPRegression(candidate, normalized_cost, 
+                    gp = GPy.models.GPRegression(n_candidate, normalized_cost, 
                                                 kernel, noise_var=noise_var, mean_function=mf)
 
                     #### The optimization routine
                     beta=1
-                    mu_0, var_0= gp.predict(candidate)
+                    mu_0, var_0= gp.predict(n_candidate)
                     omega_0=np.sqrt(var_0)
                     #omega_0=gp.posterior_covariance_between_points(candidate, candidate)
                     J_min=(mu_0-beta*omega_0)*1.1
@@ -287,7 +289,7 @@ if __name__ == "__main__":
 
                 else:
                     # Add new point to the GP model
-                    opt.add_new_data_point(candidate,  normalized_cost) 
+                    opt.add_new_data_point(n_candidate,  normalized_cost) 
 
                 #### GP-Plot ######################
                 # if(int(i/(PERIOD*env.SIM_FREQ-0.5))>350):
@@ -304,13 +306,15 @@ if __name__ == "__main__":
                 #### Obtain next query point ##################               
                 if(int(i/(PERIOD*env.SIM_FREQ-0.5))>=(int(ARGS.duration_sec/PERIOD)-1)):
                     #for last 2 rounds, take best model
-                    candidate, _ = opt.get_maximum()
+                    n_candidate, _ = opt.get_maximum()
                     print("BEST CANDIDATE: "+str(candidate))
                 else:
-                    candidate = opt.optimize()#ucb=True)  
+                    n_candidate = opt.optimize()#ucb=True)  
                     print("NEW CANDIDATE: "+str(candidate))#+ "   acquisition value: "+str(acq_value.item()))
 
                 #### Set new PID parameters ################################
+                candidate=np.multiply(n_candidate.squeeze(),theta_norm)
+                candidate=np.expand_dims(candidate, 0)
                 PID_coeff[0][0:2]=np.reshape(np.array(candidate.squeeze()),PID_coeff[0][0:2].shape)
                 ctrl[j].setPIDCoefficients(*PID_coeff)        
                 
