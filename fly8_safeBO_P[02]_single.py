@@ -175,14 +175,15 @@ if __name__ == "__main__":
     START = time.time()
     
     #### BO in the simulation ##################################
-    PID_coeff=np.array([[.01, .01, 0.1],[.05, .05, .05],[.2, .2, .5],[70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]])
-    # Default param: [[.4, .4, 1.25],[.05, .05, .05],[.2, .2, .5],[70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]])
+    #start PID parameter
+    PID_coeff=np.array([[.01, .01, 0.1],[.05, .05, .05],[.2, .2, .5], #PID xyz
+    [70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]]) #PID rpy
+    # Default param: [[.4, .4, 1.25],[.05, .05, .05],[.2, .2, .5],
+    # [70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]])
+    
     candidate=np.expand_dims(PID_coeff[0][0:2], 0)
     for i in range(ARGS.num_drones):
         ctrl[i].setPIDCoefficients(*PID_coeff) 
-
-    # Theta=np.empty(candidate.shape, dtype=np.float64)
-    # Y=np.empty((1,1), dtype=np.float64)  
 
     # Matrix for LQR cost
     Q=np.eye(13)*np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
@@ -234,12 +235,12 @@ if __name__ == "__main__":
                 for k in range(x.shape[1]): x[:,k]=(x[:,k])/xmax_0[k]
                 for k in range(u.shape[1]): u[:,k]=(u[:,k]-umin)/(umax-umin)
                 performance=-np.diagonal(np.matmul(np.matmul(x,Q),x.T) +np.matmul(np.matmul(u,R),u.T))
-                
+                #Cost normalization
                 if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1): 
                     ynorm=np.max(np.abs(performance)) #linalg.norm(performance) 
                 normalized_cost=np.expand_dims(np.expand_dims(np.array(performance.mean()/ynorm),0),0) 
 
-                #### Save old candidate  and normalize ####### (ignore, save for csv)
+                #### Save old candidate####### (ignore, save for csv)
                 if(int(i/(PERIOD*env.SIM_FREQ-0.5))<1):
                     Theta=np.expand_dims(np.array(PID_coeff[0][0:2]).flatten(),0)
                     Y=normalized_cost 
@@ -269,8 +270,9 @@ if __name__ == "__main__":
                     mf.update_gradients = lambda a,b: None
                     #### Define Kernel
                     lengthscale=[0.2/l for l in theta_norm]
+                    prior_std=0.4*prior_mean
                     kernel = GPy.kern.src.stationary.Matern52(input_dim=len(bounds), 
-                            variance=(0.4*prior_mean)**2, lengthscale=lengthscale, ARD=2)
+                            variance=prior_std**2, lengthscale=lengthscale, ARD=2)
                     # kernel = GPy.kern.RBF(input_dim=len(bounds), variance=0.2*y_0, lengthscale=lengthscale,
                     #     ARD=2)
 
@@ -279,12 +281,13 @@ if __name__ == "__main__":
                                                 kernel, noise_var=noise_var, mean_function=mf)
 
                     #### The optimization routine
-                    beta=1
                     mu_0, var_0= gp.predict(n_candidate)
-                    omega_0=np.sqrt(var_0)
-                    #omega_0=gp.posterior_covariance_between_points(candidate, candidate)
-                    J_min=(mu_0-beta*omega_0)*1.1
-                    print("PRIOR MEAN: "+ str(prior_mean) +"     J_MIN: "+ str(J_min.item()))
+                    sigma_0=np.sqrt(var_0)
+                    EPS=0.01
+                    beta=np.around((2*prior_mean-mu_0*(1+EPS))/(2*prior_std-(1+EPS)*sigma_0),1).squeeze()
+                    J_min=(mu_0-beta*sigma_0)*(1+EPS)
+                    print("BETA: "+str(beta) + "PRIOR MEAN: "+ str(prior_mean) 
+                            +"     J_MIN: "+ str(J_min.item()))
                     opt = safeopt.SafeOptSwarm(gp, J_min, bounds=bounds, threshold=0.2, beta=beta)
 
                 else:
