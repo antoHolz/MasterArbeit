@@ -184,6 +184,7 @@ if __name__ == "__main__":
     candidate=np.expand_dims(PID_coeff[0][0:2], 0)
     for i in range(ARGS.num_drones):
         ctrl[i].setPIDCoefficients(*PID_coeff) 
+    print("START: " + str(candidate))
 
     # Matrix for LQR cost
     Q=np.eye(13)*np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
@@ -281,12 +282,12 @@ if __name__ == "__main__":
                                                 kernel, noise_var=noise_var, mean_function=mf)
 
                     #### The optimization routine
-                    mu_0, var_0= gp.predict(n_candidate)
-                    sigma_0=np.sqrt(var_0)
-                    EPS=0.01
+                    mu_0, var_0= gp.predict_noiseless(n_candidate)
+                    sigma_0=np.sqrt(var_0.squeeze())
+                    EPS=0.1
                     beta=np.around((2*prior_mean-mu_0*(1+EPS))/(2*prior_std-(1+EPS)*sigma_0),1).squeeze()
                     J_min=(mu_0-beta*sigma_0)*(1+EPS)
-                    print("BETA: "+str(beta) + "PRIOR MEAN: "+ str(prior_mean) 
+                    print("BETA: "+str(beta) + "    PRIOR MEAN: "+ str(prior_mean) 
                             +"     J_MIN: "+ str(J_min.item()))
                     opt = safeopt.SafeOptSwarm(gp, J_min, bounds=bounds, threshold=0.2, beta=beta)
 
@@ -308,7 +309,7 @@ if __name__ == "__main__":
 
                 #### Obtain next query point ##################               
                 if(int(i/(PERIOD*env.SIM_FREQ-0.5))>=(int(ARGS.duration_sec/PERIOD)-1)):
-                    #for last 2 rounds, take best model
+                    #for last round, take best model
                     n_candidate, _ = opt.get_maximum()
                     print("BEST CANDIDATE: "+str(candidate))
                 else:
