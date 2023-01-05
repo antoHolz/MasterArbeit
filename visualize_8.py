@@ -7,7 +7,6 @@ def vis(argv):
     NUM_WP=48*6
     NUM_R=48*2
     NUM_CSTEPS=NUM_R+NUM_WP
-    PROP=NUM_WP/NUM_CSTEPS
     ####  superimpose PID without BO  ################
 
     # csv_PID_name='save-flight-pid-11.25.2022_11.11.49'
@@ -24,12 +23,12 @@ def vis(argv):
     print(data_x.shape[0], NUM_CSTEPS )
     for i in range(int((data_x.shape[0]+1)/NUM_CSTEPS)):
         if(i==int(data_x.shape[0]/NUM_CSTEPS)-1):
-            plt.plot(data_x.iloc[:,1][NUM_CSTEPS*i:int(NUM_CSTEPS*(1+i)*PROP)], 
-                    data_y.iloc[:,1][NUM_CSTEPS*i:int(NUM_CSTEPS*(1+i)*PROP)], 
+            plt.plot(data_x.iloc[:,1][NUM_CSTEPS*i:NUM_CSTEPS*i+NUM_WP], 
+                    data_y.iloc[:,1][NUM_CSTEPS*i:NUM_CSTEPS*i+NUM_WP], 
                     label=('round'+str(i) + '(best)'), color='purple', linewidth=2)
         else:
-            plt.plot(data_x.iloc[:,1][NUM_CSTEPS*i:int(NUM_CSTEPS*(1+i)*PROP)], 
-                    data_y.iloc[:,1][NUM_CSTEPS*i:int(NUM_CSTEPS*(1+i)*PROP)], 
+            plt.plot(data_x.iloc[:,1][NUM_CSTEPS*i:NUM_CSTEPS*i+NUM_WP], 
+                    data_y.iloc[:,1][NUM_CSTEPS*i:NUM_CSTEPS*i+NUM_WP], 
                     label=('round'+str(i)), 
                     color=([1-i/float(data_x.shape[0]/NUM_WP+0.5),i/(float(data_x.shape[0]/NUM_WP+0.5)),0,0.8-i/(float(data_x.shape[0]/NUM_WP+0.5)*3)]))
      
