@@ -177,7 +177,7 @@ if __name__ == "__main__":
     
     #### BO in the simulation ##################################
     #start PID parameter
-    PID_coeff=np.array([[.01, .01, 0.1],[.05, .05, .05],[.2, .2, .5], #PID xyz
+    PID_coeff=np.array([[0.4, 0.4, 1.25],[.05, .05, .05],[.2, .2, .5], #PID xyz
     [70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]]) #PID rpy
     # Default param: [[.4, .4, 1.25],[.05, .05, .05],[.2, .2, .5],
     # [70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]])
@@ -312,12 +312,10 @@ if __name__ == "__main__":
 
                 #### Obtain next query point ##################               
                 if(int(i/ROUND_STEPS)>=(int(ARGS.duration_sec/PERIOD)-1)):
-                    #for last round, take best model
-                    print(i)
+                    #for last round, take best parameters
                     n_candidate, _ = opt.get_maximum()
                     print("BEST CANDIDATE: "+str(candidate))
                 else:
-                    print(i)
                     n_candidate = opt.optimize()#ucb=True)  
                     print("NEW CANDIDATE: "+str(candidate))#+ "   acquisition value: "+str(acq_value.item()))
 
