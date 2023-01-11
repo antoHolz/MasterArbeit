@@ -95,8 +95,8 @@ if __name__ == "__main__":
     PERIOD= PERIOD_8 + RETURN_TIME
     NUM_WP = ARGS.control_freq_hz * PERIOD_8
     NUM_R= ARGS.control_freq_hz * RETURN_TIME
-    ROUND_STEPS= ARGS.simulation_freq_hz*PERIOD
-    TRAJ_STEPS=ARGS.simulation_freq_hz*RETURN_TIME
+    TRAJ_STEPS=ARGS.simulation_freq_hz*PERIOD_8
+    ROUND_STEPS= ARGS.simulation_freq_hz*PERIOD 
 
     TARGET_POS = np.zeros((NUM_WP+NUM_R, 3))
     for i in range(NUM_WP):
@@ -182,7 +182,8 @@ if __name__ == "__main__":
     [70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]]) #PID rpy
     # Default param: [[.4, .4, 1.25],[.05, .05, .05],[.2, .2, .5],
     # [70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]])
-    candidate=PID_coeff[0:2].flatten()
+    candidate=np.vstack((np.array([pi[0:2] for pi in PID_coeff[0:2]]),
+                np.array([pi[0:2] for pi in PID_coeff[3:4]]))).flatten()
     #candidate=np.expand_dims(candidate, 0)
     for i in range(ARGS.num_drones):
         ctrl[i].setPIDCoefficients(*PID_coeff) 
@@ -227,9 +228,9 @@ if __name__ == "__main__":
                     u=np.concatenate((u,np.expand_dims(action[str(j)],0)))
               
             #### calculate performance ############# 
-            if(((i+CTRL_EVERY_N_STEPS)>=ROUND_STEPS) & (((i+CTRL_EVERY_N_STEPS)%ROUND_STEPS) == TRAJ_STEPS)):
+            if(((i+CTRL_EVERY_N_STEPS)>=TRAJ_STEPS) & (((i+CTRL_EVERY_N_STEPS)%ROUND_STEPS) == TRAJ_STEPS)):
                 #### Calculate performance metric (cost) #### 
-                if(int((i+CTRL_EVERY_N_STEPS)/ROUND_STEPS)==1):
+                if(int((i+CTRL_EVERY_N_STEPS)/TRAJ_STEPS)==1):
                     xmax_0=np.max(x,axis=0)
                     #xmax_0[0:3]=R
                     umax=env.MAX_RPM 
@@ -238,13 +239,13 @@ if __name__ == "__main__":
                 for k in range(u.shape[1]): u[:,k]=(u[:,k]-umin)/(umax-umin)
                 performance=-np.diagonal(np.matmul(np.matmul(x,Q),x.T) +np.matmul(np.matmul(u,Rm),u.T))
                 #Cost normalization
-                if(int((i+CTRL_EVERY_N_STEPS)/ROUND_STEPS)==1): 
+                if(int((i+CTRL_EVERY_N_STEPS)/TRAJ_STEPS)==1): 
                     ynorm=int(np.abs(performance.mean())+1)#4.5 #13.5 #np.max(np.abs(performance)) 
                 cost=np.expand_dims(np.expand_dims(performance.mean(),0),0) 
                 normalized_cost=cost/ynorm
 
                 #### Save old candidate####### (ignore, save for csv)
-                if(int((i+CTRL_EVERY_N_STEPS)/ROUND_STEPS)==1):
+                if(int((i+CTRL_EVERY_N_STEPS)/TRAJ_STEPS)==1):
                     Theta=np.expand_dims(candidate.flatten(),0)
                     Y=normalized_cost 
                     Y_abs=cost
@@ -256,17 +257,18 @@ if __name__ == "__main__":
                 print( "Round " +str(int(i/(PERIOD*env.SIM_FREQ)))+ "/" +str(int(ARGS.duration_sec/PERIOD)-1)
                         + " cost :" + str(performance.mean().item()) 
                         + " ("+str((normalized_cost).item())+")" )
-                
+                print("rpm: "+ str(np.mean(action[str(j)])))             
 
             #### BO ################################
  
-            if((i>=ROUND_STEPS) & ((i%ROUND_STEPS) == TRAJ_STEPS)):
+            if((i%ROUND_STEPS) == TRAJ_STEPS):
                 #### Fit new GP ###################
-                if(int(i/ROUND_STEPS)==1):
+                if(int(i/ROUND_STEPS)==0):
                     #### Measurement noise
                     noise_var = 0.01*normalized_cost.squeeze() #0.05 ** 2 #
                     #### Bounds on the input variables
-                    bounds = [(0, 2e0), (0, 2e0), (0, 2e0), (0, 1e0), (0, 1e0), (0, 1e0)]#
+                    bounds = [(0, 2e0), (0, 2e0), (0, 1e0), (0, 1e0), #XYZ
+                                (0,1e5), (0,1e5)] #RPY
                     theta_norm=[b[1]-b[0] for b in bounds]
                     n_candidate=np.divide(candidate.squeeze().flatten(),theta_norm)
                     n_candidate=np.expand_dims(n_candidate, 0)
@@ -278,8 +280,9 @@ if __name__ == "__main__":
                     mf.f = constant
                     mf.update_gradients = lambda a,b: None
                     #### Define Kernel
-                    lengthscale=[0.25/theta_norm[0], 0.25/theta_norm[1], 0.25/theta_norm[2],  
-                                0.025/theta_norm[3], 0.025/theta_norm[4], 0.025/theta_norm[5]]
+                    lengthscale=[0.25/theta_norm[0], 0.25/theta_norm[1], 
+                                0.025/theta_norm[2], 0.025/theta_norm[3],
+                                20000/theta_norm[4], 20000/theta_norm[5]]
                     prior_std=(1/3)*prior_mean
                     kernel = GPy.kern.src.stationary.Matern52(input_dim=len(bounds), 
                             variance=prior_std**2, lengthscale=lengthscale, ARD=6)
@@ -327,23 +330,23 @@ if __name__ == "__main__":
                 # print(max_var)
 
                 #### Obtain next query point ##################               
-                if(int(i/ROUND_STEPS+1)>=(int(ARGS.duration_sec/PERIOD)-1)):
-                    if(int(i/ROUND_STEPS+1)==(int(ARGS.duration_sec/PERIOD))):
-                        break
-                    #for last round, take best parameters
-                    n_candidate, _ = opt.get_maximum()
-                    candidate=np.multiply(n_candidate.squeeze(),theta_norm)
-                    print("BEST CANDIDATE: "+str(candidate))
-                else:
+                if(int(i/ROUND_STEPS+2)<(int(ARGS.duration_sec/PERIOD))):
                     n_candidate = opt.optimize()#ucb=True) 
                     candidate=np.multiply(n_candidate.squeeze(),theta_norm)
                     round_nr=int(i/(PERIOD*env.SIM_FREQ))+1 
                     print("NEW CANDIDATE: "+str(candidate) + "  BETA: "+str(beta(round_nr)))#+ "   acquisition value: "+str(acq_value.item()))
-                
+                elif(int(i/ROUND_STEPS+2)==(int(ARGS.duration_sec/PERIOD))):
+                    #for last round, take best parameters
+                    n_candidate, _ = opt.get_maximum()
+                    candidate=np.multiply(n_candidate.squeeze(),theta_norm)
+                    print("BEST CANDIDATE: "+str(candidate))
+
             if((i>=ROUND_STEPS) & ((i%ROUND_STEPS) == 0)):
                 #### Set new PID parameters ################################
-                for i in range(2):
-                     PID_coeff[i]=np.reshape(candidate[3*i:3*i+3].squeeze(),PID_coeff[i].shape)
+                for k in range(2):
+                     PID_coeff[k][0:2]=np.reshape(candidate[2*k:2*k+2].squeeze(),PID_coeff[k][0:2].shape)
+                for k in range(1):
+                    PID_coeff[k+3][0:2]=np.reshape(candidate[2*k+4:2*k+6].squeeze(),PID_coeff[k+3][0:2].shape)
                 ctrl[j].setPIDCoefficients(*PID_coeff)        
                 
 
@@ -391,7 +394,7 @@ if __name__ == "__main__":
     PID_START="0.4_0.05"
     R_MATRIX=str(R_coeff)
     NR_ROUNDS=str(int(ARGS.duration_sec/PERIOD))
-    FILENAME="pid_safeBO"+"_matern52"+"_R_"+R_MATRIX+"_alpha_"+AQUISITION_F+"_start_PI_"+PID_START+"_rounds_"+NR_ROUNDS
+    FILENAME="pid_safeBO"+"_matern52"+"_R_"+R_MATRIX+"_alpha_"+AQUISITION_F+"_start_15PI[02]_"+PID_START+"_rounds_"+NR_ROUNDS
     logger.save_as_csv_w_performance(FILENAME, candidates)
 
     #### Plot the simulation results ###########################

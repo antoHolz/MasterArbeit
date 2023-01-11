@@ -20,9 +20,8 @@ def vis(argv):
     csv_name=argv[1]#'pid_BO_R_500_alpha_UCB_c1_0.8_c2_4_start_PID_0.01_rounds_11-11.28.2022_21.29'
     data_x=pd.read_csv('../files/csvs/'+csv_name+'/x0.csv')
     data_y=pd.read_csv('../files/csvs/'+csv_name+'/y0.csv')
-    print(data_x.shape[0], NUM_CSTEPS )
-    for i in range(int((data_x.shape[0]+1)/NUM_CSTEPS)):
-        if(i==int(data_x.shape[0]/NUM_CSTEPS)-1):
+    for i in range(int((data_x.shape[0])/NUM_CSTEPS)):
+        if(i==(int(data_x.shape[0]/NUM_CSTEPS)-1)):
             plt.plot(data_x.iloc[:,1][NUM_CSTEPS*i:NUM_CSTEPS*i+NUM_WP], 
                     data_y.iloc[:,1][NUM_CSTEPS*i:NUM_CSTEPS*i+NUM_WP], 
                     label=('round'+str(i) + '(best)'), color='purple', linewidth=2)
@@ -44,7 +43,7 @@ def vis(argv):
     #mean_performance=data_performance.mean()
     #print(mean_performance)
     for col in data_performance.columns:
-        print(col, data_performance[col][0], data_performance[col][1])#,data_performance[col][2] )
+        print(col, data_performance[col][0], data_performance[col][1],data_performance[col][2] )
 
     #print("mean: "+str(np.std(data_performance.iloc[1,:])))
     #print("std: " +str(np.std(data_performance.iloc[1,:])))

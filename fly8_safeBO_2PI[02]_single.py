@@ -182,7 +182,8 @@ if __name__ == "__main__":
     [70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]]) #PID rpy
     # Default param: [[.4, .4, 1.25],[.05, .05, .05],[.2, .2, .5],
     # [70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]])
-    candidate=PID_coeff[0:2].flatten()
+    candidate=np.vstack((np.array([pi[0:2] for pi in PID_coeff[0:2]]),
+                np.array([pi[0:2] for pi in PID_coeff[3:5]]))).flatten()
     #candidate=np.expand_dims(candidate, 0)
     for i in range(ARGS.num_drones):
         ctrl[i].setPIDCoefficients(*PID_coeff) 
@@ -256,7 +257,7 @@ if __name__ == "__main__":
                 print( "Round " +str(int(i/(PERIOD*env.SIM_FREQ)))+ "/" +str(int(ARGS.duration_sec/PERIOD)-1)
                         + " cost :" + str(performance.mean().item()) 
                         + " ("+str((normalized_cost).item())+")" )
-                
+                print("rpm: "+ str(action[str(j)]))             
 
             #### BO ################################
  
@@ -266,7 +267,8 @@ if __name__ == "__main__":
                     #### Measurement noise
                     noise_var = 0.01*normalized_cost.squeeze() #0.05 ** 2 #
                     #### Bounds on the input variables
-                    bounds = [(0, 2e0), (0, 2e0), (0, 2e0), (0, 1e0), (0, 1e0), (0, 1e0)]#
+                    bounds = [(0, 2e0), (0, 2e0), (0, 1e0), (0, 1e0), #XYZ
+                                (0,1e5), (0,1e5), (0,1e3), (0,1e3)] #RPY
                     theta_norm=[b[1]-b[0] for b in bounds]
                     n_candidate=np.divide(candidate.squeeze().flatten(),theta_norm)
                     n_candidate=np.expand_dims(n_candidate, 0)
@@ -274,15 +276,17 @@ if __name__ == "__main__":
                     prior_mean= -1
                     def constant(num):
                         return prior_mean
-                    mf = GPy.core.Mapping(6,1)
+                    mf = GPy.core.Mapping(8,1)
                     mf.f = constant
                     mf.update_gradients = lambda a,b: None
                     #### Define Kernel
-                    lengthscale=[0.25/theta_norm[0], 0.25/theta_norm[1], 0.25/theta_norm[2],  
-                                0.025/theta_norm[3], 0.025/theta_norm[4], 0.025/theta_norm[5]]
+                    lengthscale=[0.25/theta_norm[0], 0.25/theta_norm[1], 
+                                0.025/theta_norm[2], 0.025/theta_norm[3],
+                                2000/theta_norm[4], 2000/theta_norm[5],
+                                1/theta_norm[6], 1/theta_norm[7]]
                     prior_std=(1/3)*prior_mean
                     kernel = GPy.kern.src.stationary.Matern52(input_dim=len(bounds), 
-                            variance=prior_std**2, lengthscale=lengthscale, ARD=6)
+                            variance=prior_std**2, lengthscale=lengthscale, ARD=8)
                     # kernel = GPy.kern.RBF(input_dim=len(bounds), variance=prior_std**2, lengthscale=lengthscale,
                     #     ARD=4)
 
@@ -342,8 +346,10 @@ if __name__ == "__main__":
                 
             if((i>=ROUND_STEPS) & ((i%ROUND_STEPS) == 0)):
                 #### Set new PID parameters ################################
-                for i in range(2):
-                     PID_coeff[i]=np.reshape(candidate[3*i:3*i+3].squeeze(),PID_coeff[i].shape)
+                for k in range(2):
+                     PID_coeff[k][0:2]=np.reshape(candidate[2*k:2*k+2].squeeze(),PID_coeff[k][0:2].shape)
+                for k in range(2):
+                    PID_coeff[k+3][0:2]=np.reshape(candidate[2*k+4:2*k+6].squeeze(),PID_coeff[k+3][0:2].shape)
                 ctrl[j].setPIDCoefficients(*PID_coeff)        
                 
 
@@ -391,7 +397,7 @@ if __name__ == "__main__":
     PID_START="0.4_0.05"
     R_MATRIX=str(R_coeff)
     NR_ROUNDS=str(int(ARGS.duration_sec/PERIOD))
-    FILENAME="pid_safeBO"+"_matern52"+"_R_"+R_MATRIX+"_alpha_"+AQUISITION_F+"_start_PI_"+PID_START+"_rounds_"+NR_ROUNDS
+    FILENAME="pid_safeBO"+"_matern52"+"_R_"+R_MATRIX+"_alpha_"+AQUISITION_F+"_start_2PI[02]_"+PID_START+"_rounds_"+NR_ROUNDS
     logger.save_as_csv_w_performance(FILENAME, candidates)
 
     #### Plot the simulation results ###########################

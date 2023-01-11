@@ -90,13 +90,13 @@ if __name__ == "__main__":
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
 
     #### Initialize a 8-trayectory #############################
-    PERIOD_8 = 6
+    PERIOD_8 = 24
     RETURN_TIME= 2
     PERIOD= PERIOD_8 + RETURN_TIME
     NUM_WP = ARGS.control_freq_hz * PERIOD_8
     NUM_R= ARGS.control_freq_hz * RETURN_TIME
     ROUND_STEPS= ARGS.simulation_freq_hz*PERIOD
-    TRAJ_STEPS=ARGS.simulation_freq_hz*RETURN_TIME
+    TRAJ_STEPS=ARGS.simulation_freq_hz*PERIOD_8
 
     TARGET_POS = np.zeros((NUM_WP+NUM_R, 3))
     for i in range(NUM_WP):
@@ -104,6 +104,10 @@ if __name__ == "__main__":
             2*((i / NUM_WP) * (2 * np.pi) + np.pi / 2))/2 + INIT_XYZS[0, 1],  INIT_XYZS[0, 2]
     for i in range(NUM_R):
         TARGET_POS[i+NUM_WP, :] = INIT_XYZS[0,:]
+    
+    TARGET_VEL = np.zeros((NUM_WP+NUM_R, 3))
+    for i in range(NUM_WP+NUM_R-1):
+        TARGET_VEL[i+1, :]=(TARGET_POS[i+1]-TARGET_POS[i])/(ARGS.control_freq_hz)
 
     wp_counters = np.array([int((i * (NUM_WP+NUM_R) / 6) % (NUM_WP+NUM_R)) for i in range(ARGS.num_drones)])
     
@@ -178,7 +182,7 @@ if __name__ == "__main__":
     
     #### BO in the simulation ##################################
     #start PID parameter
-    PID_coeff=np.array([[0.4, 0.4, 0.1],[.05, .05, .05],[.2, .2, .5], #PID xyz
+    PID_coeff=np.array([[0.4, 0.4, 1.25],[.05, .05, .05],[.2, .2, .5], #PID xyz
     [70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]]) #PID rpy
     # Default param: [[.4, .4, 1.25],[.05, .05, .05],[.2, .2, .5],
     # [70000., 70000., 60000.],[.0, .0, 500.],[20000., 20000., 12000.]])
@@ -191,7 +195,7 @@ if __name__ == "__main__":
     # Matrix for LQR cost
     Q=np.eye(13)*np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     R_coeff=0
-    R=R_coeff*np.eye(4)
+    Rm=R_coeff*np.eye(4)
 
     ############################################################
 
@@ -205,17 +209,17 @@ if __name__ == "__main__":
 
         #### Compute control at the desired frequency ##############
         if i%CTRL_EVERY_N_STEPS == 0:
-
             #### Compute control for the current way point #############
             for j in range(ARGS.num_drones):
                 action[str(j)], _, _ = ctrl[j].computeControlFromState(control_timestep=CTRL_EVERY_N_STEPS*env.TIMESTEP,
                                                                        state=obs[str(j)]["state"],
                                                                        target_pos=TARGET_POS[wp_counters[j], 0:3],
                                                                        # target_pos=INIT_XYZS[j, :] + TARGET_POS[wp_counters[j], :],
-                                                                       target_rpy=INIT_RPYS[j, :]
+                                                                       target_rpy=INIT_RPYS[j, :], 
+                                                                       #target_vel=TARGET_VEL[wp_counters[j], 0:3]
                                                                        )
             #### x, u data for BO ##################
-            if(((i+1)%ROUND_STEPS)<TRAJ_STEPS): #only count round, not return steps
+            if(((i+1)%ROUND_STEPS)<=TRAJ_STEPS): #only count round, not return steps
                 X_ist=np.hstack((obs[str(j)]["state"][0:7],np.array(obs[str(j)]["state"][10:16])))
                 X_soll=np.hstack((TARGET_POS[wp_counters[j], 0:3], np.zeros(10)))
                 
@@ -227,23 +231,22 @@ if __name__ == "__main__":
                     u=np.concatenate((u,np.expand_dims(action[str(j)],0)))
               
             #### calculate performance ############# 
-            if(((i+CTRL_EVERY_N_STEPS)>=ROUND_STEPS) & (((i+CTRL_EVERY_N_STEPS)%ROUND_STEPS) == TRAJ_STEPS)):
+            if(((i+CTRL_EVERY_N_STEPS)>=TRAJ_STEPS) & (((i+CTRL_EVERY_N_STEPS)%ROUND_STEPS) == TRAJ_STEPS)):
                 #### Calculate performance metric (cost) #### 
-                if(int((i+CTRL_EVERY_N_STEPS)/ROUND_STEPS)==1):
-                    xmax_0=np.max(x,axis=0)
-                    umax=env.MAX_RPM 
-                    umin=0 
+                if(int((i+CTRL_EVERY_N_STEPS)/TRAJ_STEPS)==1):
+                    xmax_0=np.max(x,axis=0) #xmin=0 #also possible: xmax_0[0:3]=R
+                    umax=env.MAX_RPM #umin=0
                 for k in range(x.shape[1]): x[:,k]=(x[:,k])/xmax_0[k]
-                for k in range(u.shape[1]): u[:,k]=(u[:,k]-umin)/(umax-umin)
-                performance=-np.diagonal(np.matmul(np.matmul(x,Q),x.T) +np.matmul(np.matmul(u,R),u.T))
+                for k in range(u.shape[1]): u[:,k]=(u[:,k])/(umax)
+                performance=-np.diagonal(np.matmul(np.matmul(x,Q),x.T) +np.matmul(np.matmul(u,Rm),u.T))
                 #Cost normalization
-                if(int((i+CTRL_EVERY_N_STEPS)/ROUND_STEPS)==1): 
-                    ynorm=int(np.abs(performance.mean())+1)#4.5 #13.5 #np.max(np.abs(performance)) 
+                if(int((i+CTRL_EVERY_N_STEPS)/TRAJ_STEPS)==1): 
+                    ynorm=int(np.abs(performance.mean())+1) #4.5 #13.5 #np.max(np.abs(performance)) 
                 cost=np.expand_dims(np.expand_dims(performance.mean(),0),0) 
                 normalized_cost=cost/ynorm
 
                 #### Save old candidate####### (ignore, save for csv)
-                if(int((i+CTRL_EVERY_N_STEPS)/ROUND_STEPS)==1):
+                if(int((i+CTRL_EVERY_N_STEPS)/TRAJ_STEPS)==1):
                     Theta=np.expand_dims(candidate.flatten(),0)
                     Y=normalized_cost 
                     Y_abs=cost
@@ -255,20 +258,22 @@ if __name__ == "__main__":
                 print( "Round " +str(int(i/(PERIOD*env.SIM_FREQ)))+ "/" +str(int(ARGS.duration_sec/PERIOD)-1)
                         + " cost :" + str(performance.mean().item()) 
                         + " ("+str((normalized_cost).item())+")" )
+                print("vel: "+ str(np.sqrt(np.sum(np.array(obs[str(j)]["state"][10:13])**2))) +
+                    "   rpm: "+ str(np.mean(action[str(j)])))
                 
-
             #### BO ################################
- 
-            if((i>=ROUND_STEPS) & ((i%ROUND_STEPS) == TRAJ_STEPS)):
+            if((i%ROUND_STEPS) == TRAJ_STEPS):
                 #### Fit new GP ###################
-                if(int(i/ROUND_STEPS)==1):
+                if(int(i/ROUND_STEPS)==0):
                     #### Measurement noise
                     noise_var = 0.01*normalized_cost.squeeze() #0.05 ** 2 #
-                    #### Bounds on the input variables
-                    bounds = [(0, 2e0), (0, 2e0), (0, 1e0), (0, 1e0)]#, (.9, 1.25), (.02,.8), (.02, .8), (.02, .8)]
+                    #### Bounds on the input variables and normalization of theta
+                    bounds = [(0, 2e0), (0, 2e0), #P
+                            (0, 1e0), (0, 1e0)] #I
                     theta_norm=[b[1]-b[0] for b in bounds]
                     n_candidate=np.divide(candidate.squeeze().flatten(),theta_norm)
                     n_candidate=np.expand_dims(n_candidate, 0)
+                    
                     #### Prior mean
                     prior_mean= -1
                     def constant(num):
@@ -276,42 +281,35 @@ if __name__ == "__main__":
                     mf = GPy.core.Mapping(4,1)
                     mf.f = constant
                     mf.update_gradients = lambda a,b: None
+                    
                     #### Define Kernel
-                    lengthscale=[0.25/theta_norm[0], 0.25/theta_norm[1], 
+                    lengthscale=[0.25/theta_norm[0], 0.25/theta_norm[1],   
                                 0.025/theta_norm[2], 0.025/theta_norm[3]]
                     prior_std=(1/3)*prior_mean
                     kernel = GPy.kern.src.stationary.Matern52(input_dim=len(bounds), 
                             variance=prior_std**2, lengthscale=lengthscale, ARD=4)
-                    # kernel = GPy.kern.RBF(input_dim=len(bounds), variance=prior_std**2, lengthscale=lengthscale,
-                    #     ARD=4)
+                    # kernel = GPy.kern.RBF(input_dim=len(bounds), variance=prior_std**2, 
+                    # lengthscale=lengthscale, ARD=4)
 
                     #### The statistical model of our objective function
                     gp = GPy.models.GPRegression(n_candidate, normalized_cost, 
                                                 kernel, noise_var=noise_var, mean_function=mf)
 
-                    #### The optimization routine
                     mu_0, var_0= gp.predict_noiseless(n_candidate)
                     sigma_0=np.sqrt(var_0.squeeze())
                     EPS=0.1
-                    # round_nr=int(i/(PERIOD*env.SIM_FREQ))+1
                     
                     def beta(round_nr):
-                        return 0.8*np.log(4*round_nr)
-                        #return 0.8*np.log(4*round_nr)                         #bogunovic
-                        #B=
-                        #MI=
-                        #gamma=0.01
-                        #return np.sqrt(2B**2+300*MI*np.log(round_nr/gamma))   #srinvas
-                        #return B + R*np.sqrt(2*MI+1+np.log(round_nr/gamma))   #chowdhury
-                        #return B + R*np.sqrt(np.log(np.det())-2*np.log(gamma))#fiedler
+                        return 0.8*np.log(4*round_nr)   #bogunovic
                     J_min=(mu_0-beta(1)*sigma_0)*(1+EPS)
+                    
                     print("BETA: "+str(beta(1)) + "    PRIOR MEAN: "+ str(prior_mean) 
                             +"     J_MIN: "+ str(J_min.item()) + "  J_NORM: "+ str(ynorm))
                     opt = safeopt.SafeOptSwarm(gp, J_min, bounds=bounds, threshold=0.2, beta=beta, 
                                                 swarm_size=20)
-
+                #### Add new point to the GP model  ###############
                 else:
-                    # Add new point to the GP model                  
+                                    
                     opt.add_new_data_point(n_candidate,  normalized_cost) 
 
                 #### GP-Plot ######################
@@ -326,23 +324,21 @@ if __name__ == "__main__":
                 # print(max_var)
 
                 #### Obtain next query point ##################               
-                if(int(i/ROUND_STEPS+1)>=(int(ARGS.duration_sec/PERIOD)-1)):
-                    if(int(i/ROUND_STEPS+1)==(int(ARGS.duration_sec/PERIOD))):
-                        break
-                    #for last round, take best parameters
-                    n_candidate, _ = opt.get_maximum()
-                    candidate=np.multiply(n_candidate.squeeze(),theta_norm)
-                    print("BEST CANDIDATE: "+str(candidate))
-                else:
+                if(int(i/ROUND_STEPS+2)<(int(ARGS.duration_sec/PERIOD))):
                     n_candidate = opt.optimize()#ucb=True) 
                     candidate=np.multiply(n_candidate.squeeze(),theta_norm)
                     round_nr=int(i/(PERIOD*env.SIM_FREQ))+1 
                     print("NEW CANDIDATE: "+str(candidate) + "  BETA: "+str(beta(round_nr)))#+ "   acquisition value: "+str(acq_value.item()))
-                
+                elif(int(i/ROUND_STEPS+2)==(int(ARGS.duration_sec/PERIOD))):
+                    #for last round, take best parameters
+                    n_candidate, _ = opt.get_maximum()
+                    candidate=np.multiply(n_candidate.squeeze(),theta_norm)
+                    print("BEST CANDIDATE: "+str(candidate))
+                    
             if((i>=ROUND_STEPS) & ((i%ROUND_STEPS) == 0)):
                 #### Set new PID parameters ################################
                 for i in range(2):
-                     PID_coeff[i][0:2]=np.reshape(candidate[2*i:2*i+2].squeeze(),PID_coeff[i][0:2].shape)
+                    PID_coeff[i][0:2]=np.reshape(candidate[2*i:2*i+2].squeeze(),PID_coeff[i][0:2].shape)
                 ctrl[j].setPIDCoefficients(*PID_coeff)        
                 
 
