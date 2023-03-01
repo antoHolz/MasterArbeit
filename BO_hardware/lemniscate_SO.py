@@ -77,6 +77,7 @@ if __name__ == "__main__":
         nbrs=NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(X_ist)
         distances, indices = nbrs.kneighbors(X_soll)
         cost=-np.sum(np.sqrt(np.sqrt(distances)))
+        cost=np.expand_dims(np.expand_dims(cost,0),0)
         if rounds==0:
             norm=int(-cost)+1
         n_cost=cost/norm
@@ -88,7 +89,7 @@ if __name__ == "__main__":
         I_x=cf.getParam("posCtlPid/xKi")
         I_y=cf.getParam("posCtlPid/yKi")
         I_z=cf.getParam("posCtlPid/zKi")
-        candidate=[0.4,0.4,1.25,0.05,0.05,0.05]#[P_x,P_y,P_z,I_x,I_y,I_z]
+        candidate=np.array([0.4,0.4,1.25,0.05,0.05,0.05])#[P_x,P_y,P_z,I_x,I_y,I_z]
     
         if(learn):
             #### BO ##############################################
@@ -141,14 +142,14 @@ if __name__ == "__main__":
 
         #### Obtain next query point ########################### 
                 
-            if((learn_counter)<max_learn_rounds ): #and (cost<=-80)):              
+            if((learn_counter+1)<max_learn_rounds ): #and (cost<=-80)):              
                 n_candidate = opt.optimize()#ucb=True) 
                 n_candidate=np.expand_dims(n_candidate, 0)
                 candidate=np.multiply(n_candidate.squeeze(),theta_norm)
                 
                 print("NEW CANDIDATE: "+str(candidate) + "  BETA: "+str(beta(learn_counter)))
 
-            elif((learn_counter)==max_learn_rounds ):
+            elif((learn_counter+1)==max_learn_rounds ):
                 #### after last learn round, take best parameters #########
                 n_candidate, _ = opt.get_maximum_S()
                 n_candidate=np.expand_dims(n_candidate, 0)
@@ -160,12 +161,12 @@ if __name__ == "__main__":
                 #### reset learning ########################################
                 learn=False
         #### Set new candidate param ###################################
-        cf.getParam("posCtlPid/xKp", candidate[0])
-        cf.getParam("posCtlPid/yKp", candidate[1])
-        cf.getParam("posCtlPid/zKp", candidate[2])
-        cf.getParam("posCtlPid/xKi", candidate[3])
-        cf.getParam("posCtlPid/yKi", candidate[4])
-        cf.getParam("posCtlPid/zKi", candidate[5])
+        cf.setParam("posCtlPid/xKp", candidate[0])
+        cf.setParam("posCtlPid/yKp", candidate[1])
+        cf.setParam("posCtlPid/zKp", candidate[2])
+        cf.setParam("posCtlPid/xKi", candidate[3])
+        cf.setParam("posCtlPid/yKi", candidate[4])
+        cf.setParam("posCtlPid/zKi", candidate[5])
 
         ####################################################################
         learn_counter+=1
