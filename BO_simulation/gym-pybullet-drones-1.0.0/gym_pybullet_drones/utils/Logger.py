@@ -211,7 +211,7 @@ class Logger(object):
             Added to the foldername.
 
         """
-        csv_dir = os.environ.get('HOME')+"/Documents/Masterarbeit/code/gym-pybullet-drones-1.0.0/files/csvs/"+comment+"-"+datetime.now().strftime("%m.%d.%Y_%H.%M")
+        csv_dir = os.environ.get('HOME')+"/gym-pybullet-drones-1.0.0/files/csvs/"+comment+"-"+datetime.now().strftime("%m.%d.%Y_%H.%M")
         if not os.path.exists(csv_dir):
             os.makedirs(csv_dir+'/')
         t = np.arange(0, self.timestamps.shape[1]/self.LOGGING_FREQ_HZ, 1/self.LOGGING_FREQ_HZ)
