@@ -1,6 +1,5 @@
 """
 General class for constrained swarm optimization.
-
 Authors: - Felix Berkenkamp (befelix at inf dot ethz dot ch)
          - Nicolas Carion (nicolas dot carion at gmail dot com)
 """
@@ -16,7 +15,6 @@ __all__ = ['SwarmOptimization']
 
 class SwarmOptimization(object):
     """Constrained swarm optimization.
-
     Parameters
     ----------
     swarm_size: int
@@ -51,11 +49,11 @@ class SwarmOptimization(object):
         self.ndim = len(velocity)
         self.swarm_size = swarm_size
 
-        self.positions = np.empty((swarm_size, len(velocity)), dtype=np.float)
+        self.positions = np.empty((swarm_size, len(velocity)), dtype=np.float64)
         self.velocities = np.empty_like(self.positions)
 
         self.best_positions = np.empty_like(self.positions)
-        self.best_values = np.empty(len(self.best_positions), dtype=np.float)
+        self.best_values = np.empty(len(self.best_positions), dtype=np.float64)
         self.global_best = None
 
     @property
@@ -65,7 +63,6 @@ class SwarmOptimization(object):
 
     def init_swarm(self, positions):
         """Initialize the swarm.
-
         Parameters
         ----------
         positions: ndarray
@@ -85,7 +82,6 @@ class SwarmOptimization(object):
 
     def run_swarm(self, max_iter):
         """Let the swarm explore the parameter space.
-
         Parameters
         ----------
         max_iter : int

@@ -1,6 +1,5 @@
 """
 Classes that implement SafeOpt.
-
 Authors: - Felix Berkenkamp (befelix at inf dot ethz dot ch)
          - Nicolas Carion (carion dot nicolas at gmail dot com)
 """
@@ -30,9 +29,7 @@ __all__ = ['SafeOpt', 'SafeOptSwarm']
 class GaussianProcessOptimization(object):
     """
     Base class for GP optimization.
-
     Handles common functionality.
-
     Parameters
     ----------
     gp: GPy Gaussian process
@@ -133,7 +130,6 @@ class GaussianProcessOptimization(object):
              **kwargs):
         """
         Plot the current state of the optimization.
-
         Parameters
         ----------
         n_samples: int
@@ -186,12 +182,10 @@ class GaussianProcessOptimization(object):
 
     def _add_context(self, x, context):
         """Add the context to a vector.
-
         Parameters
         ----------
         x : ndarray
         context : ndarray
-
         Returns
         -------
         x_extended : ndarray
@@ -206,10 +200,8 @@ class GaussianProcessOptimization(object):
 
     def _add_data_point(self, gp, x, y, context=None):
         """Add a data point to a particular GP.
-
         This should only be called on its own if you know what you're doing.
         This does not update the global data stores self.x and self.y.
-
         Parameters
         ----------
         x: 2d-array
@@ -230,7 +222,6 @@ class GaussianProcessOptimization(object):
     def add_new_data_point(self, x, y, context=None):
         """
         Add a new function observation to the GPs.
-
         Parameters
         ----------
         x: 2d-array
@@ -256,9 +247,7 @@ class GaussianProcessOptimization(object):
 
     def _remove_last_data_point(self, gp):
         """Remove the last data point of a specific GP.
-
         This does not update global data stores, self.x and self.y.
-
         Parameters
         ----------
             gp: Instance of GPy.models.GPRegression
@@ -280,12 +269,10 @@ class GaussianProcessOptimization(object):
 
 class SafeOpt(GaussianProcessOptimization):
     """A class for Safe Bayesian Optimization.
-
     This class implements the `SafeOpt` algorithm. It uses a Gaussian
     process model in order to determine parameter combinations that are safe
     with high probability. Based on these, it aims to both expand the set of
     safe parameters and to find the optimal parameters within the safe set.
-
     Parameters
     ----------
     gp: GPy Gaussian process
@@ -314,32 +301,24 @@ class SafeOpt(GaussianProcessOptimization):
         different input sizes. This should be set to the maximal variance of
         each kernel. You should probably leave this to "auto" unless your
         kernel is non-stationary.
-
     Examples
     --------
     >>> from safeopt import SafeOpt
     >>> from safeopt import linearly_spaced_combinations
     >>> import GPy
     >>> import numpy as np
-
     Define a Gaussian process prior over the performance
-
     >>> x = np.array([[0.]])
     >>> y = np.array([[1.]])
     >>> gp = GPy.models.GPRegression(x, y, noise_var=0.01**2)
-
     >>> bounds = [[-1., 1.]]
     >>> parameter_set = linearly_spaced_combinations([[-1., 1.]],
     ...                                              num_samples=100)
-
     Initialize the Bayesian optimization and get new parameters to evaluate
-
     >>> opt = SafeOpt(gp, parameter_set, fmin=[0.])
     >>> next_parameters = opt.optimize()
-
     Add a new data point with the parameters and the performance to the GP. The
     performance has normally be determined through an external function call.
-
     >>> performance = np.array([[1.]])
     >>> opt.add_new_data_point(next_parameters, performance)
     """
@@ -373,10 +352,10 @@ class SafeOpt(GaussianProcessOptimization):
 
         # Value intervals
         self.Q = np.empty((self.inputs.shape[0], 2 * len(self.gps)),
-                          dtype=np.float)
+                          dtype=np.float64)
 
         # Safe set
-        self.S = np.zeros(self.inputs.shape[0], dtype=np.bool)
+        self.S = np.zeros(self.inputs.shape[0], dtype=np.bool_)
 
         # Switch to use confidence intervals for safety
         if lipschitz is None:
@@ -392,7 +371,6 @@ class SafeOpt(GaussianProcessOptimization):
     def use_lipschitz(self):
         """
         Boolean that determines whether to use the Lipschitz constant.
-
         By default this is set to False, which means the adapted SafeOpt
         algorithm is used, that uses the GP confidence intervals directly.
         If set to True, the `self.lipschitz` parameter is used to compute
@@ -439,7 +417,6 @@ class SafeOpt(GaussianProcessOptimization):
     @context.setter
     def context(self, context):
         """Set the current context and update confidence intervals.
-
         Parameters
         ----------
         context: ndarray
@@ -452,7 +429,6 @@ class SafeOpt(GaussianProcessOptimization):
 
     def update_confidence_intervals(self, context=None):
         """Recompute the confidence intervals form the GP.
-
         Parameters
         ----------
         context: ndarray
@@ -483,7 +459,6 @@ class SafeOpt(GaussianProcessOptimization):
     def compute_sets(self, full_sets=False):
         """
         Compute the safe set of points, based on current confidence bounds.
-
         Parameters
         ----------
         context: ndarray
@@ -544,7 +519,7 @@ class SafeOpt(GaussianProcessOptimization):
             return array.argsort()[::-1]
 
         # set of safe expanders
-        G_safe = np.zeros(np.count_nonzero(s), dtype=np.bool)
+        G_safe = np.zeros(np.count_nonzero(s), dtype=np.bool_)
 
         if not full_sets:
             # Sort, element with largest variance first
@@ -617,12 +592,10 @@ class SafeOpt(GaussianProcessOptimization):
     def get_new_query_point(self, ucb=False):
         """
         Compute a new point at which to evaluate the function.
-
         Parameters
         ----------
         ucb: bool
             If True the safe-ucb criteria is used instead.
-
         Returns
         -------
         x: np.array
@@ -650,14 +623,12 @@ class SafeOpt(GaussianProcessOptimization):
 
     def optimize(self, context=None, ucb=False):
         """Run Safe Bayesian optimization and get the next parameters.
-
         Parameters
         ----------
         context: ndarray
             A vector containing the current context
         ucb: bool
             If True the safe-ucb criteria is used instead.
-
         Returns
         -------
         x: np.array
@@ -677,19 +648,16 @@ class SafeOpt(GaussianProcessOptimization):
     def get_maximum(self, context=None):
         """
         Return the current estimate for the maximum.
-
         Parameters
         ----------
         context: ndarray
             A vector containing the current context
-
         Returns
         -------
         x - ndarray
             Location of the maximum
         y - 0darray
             Maximum value
-
         Notes
         -----
         Uses the current context and confidence intervals!
@@ -714,13 +682,10 @@ class SafeOpt(GaussianProcessOptimization):
 
 class SafeOptSwarm(GaussianProcessOptimization):
     """SafeOpt for larger dimensions using a Swarm Optimization heuristic.
-
     Note that it doesn't support the use of a Lipschitz constant nor contextual
     optimization.
-
     You can set your logging level to INFO to get more insights on the
     optimization process.
-
     Parameters
     ----------
     gp: GPy Gaussian process
@@ -751,30 +716,22 @@ class SafeOptSwarm(GaussianProcessOptimization):
         is non-stationary
     swarm_size: int
         The number of particles in each of the optimization swarms
-
     Examples
     --------
     >>> from safeopt import SafeOptSwarm
     >>> import GPy
     >>> import numpy as np
-
     Define a Gaussian process prior over the performance
-
     >>> x = np.array([[0.]])
     >>> y = np.array([[1.]])
     >>> gp = GPy.models.GPRegression(x, y, noise_var=0.01**2)
-
     Initialize the Bayesian optimization and get new parameters to evaluate
-
     >>> opt = SafeOptSwarm(gp, fmin=[0.], bounds=[[-1., 1.]])
     >>> next_parameters = opt.optimize()
-
     Add a new data point with the parameters and the performance to the GP. The
     performance has normally be determined through an external function call.
-
     >>> performance = np.array([[1.]])
     >>> opt.add_new_data_point(next_parameters, performance)
-
     """
 
     def __init__(self, gp, fmin, bounds, beta=2, scaling='auto', threshold=0,
@@ -817,23 +774,21 @@ class SafeOptSwarm(GaussianProcessOptimization):
 
     def optimize_particle_velocity(self):
         """Optimize the velocities of the particles.
-
         Note that this only works well for stationary kernels and constant mean
         functions. Otherwise the velocity depends on the position!
-
         Returns
         -------
         velocities: ndarray
             The estimated optimal velocities in each direction.
         """
-        parameters = np.zeros((1, self.gp.input_dim), dtype=np.float)
+        parameters = np.zeros((1, self.gp.input_dim), dtype=np.float64)
         velocities = np.empty((len(self.gps), self.gp.input_dim),
-                              dtype=np.float)
+                              dtype=np.float64)
 
         for i, gp in enumerate(self.gps):
             for j in range(self.gp.input_dim):
                 tmp_velocities = np.zeros((1, self.gp.input_dim),
-                                          dtype=np.float)
+                                          dtype=np.float64)
 
                 # lower and upper bounds on velocities
                 upper_velocity = 1000.
@@ -873,16 +828,13 @@ class SafeOptSwarm(GaussianProcessOptimization):
 
     def _compute_penalty(self, slack):
         """Return the penalty associated to a constraint violation.
-
         The penalty is a piecewise linear function that is nonzero only if the
         safety constraints are violated. This penalty encourages particles to
         stay within the safe set.
-
         Parameters
         ----------
         slack: ndarray
             A vector corresponding to how much the constraint was violated.
-
         Returns
         -------
         penalties - ndarray
@@ -901,7 +853,6 @@ class SafeOptSwarm(GaussianProcessOptimization):
     def _compute_particle_fitness(self, swarm_type, particles):
         """
         Return the value of the particles and the safety information.
-
         Parameters
         ----------
         particles : ndarray
@@ -909,7 +860,6 @@ class SafeOptSwarm(GaussianProcessOptimization):
         swarm_type : string
             A string corresponding to the swarm type. It can be any of the
             following strings:
-
                 * 'greedy' : Optimal value(best lower bound).
                 * 'expander' : Expanders (lower bound close to constraint)
                 * 'maximizer' : Maximizers (Upper bound better than best l)
@@ -954,7 +904,7 @@ class SafeOptSwarm(GaussianProcessOptimization):
                 # For expanders, the interest function is updated depending on
                 # the lower bounds
                 interest_function = (len(self.gps) *
-                                     np.ones(np.shape(values), dtype=np.float))
+                                     np.ones(np.shape(values), dtype=np.float64))
             elif is_maximizer:
                 improvement = upper_bound - self.best_lower_bound
                 interest_function = expit(10 * improvement / self.scaling[0])
@@ -963,8 +913,8 @@ class SafeOptSwarm(GaussianProcessOptimization):
                 raise AssertionError("Invalid swarm type")
 
         # boolean mask that tell if the particles are safe according to all gps
-        global_safe = np.ones(particles.shape[0], dtype=np.bool)
-        total_penalty = np.zeros(particles.shape[0], dtype=np.float)
+        global_safe = np.ones(particles.shape[0], dtype=np.bool_)
+        total_penalty = np.zeros(particles.shape[0], dtype=np.float64)
 
         for i, (gp, scaling) in enumerate(zip(self.gps, self.scaling)):
             # Only recompute confidence intervals for constraints
@@ -1015,22 +965,18 @@ class SafeOptSwarm(GaussianProcessOptimization):
     def get_new_query_point(self, swarm_type):
         """
         Compute a new point at which to evaluate the function.
-
         This function relies on a Particle Swarm Optimization (PSO) to find the
         optimum of the objective function (which depends on the swarm type).
-
         Parameters
         ----------
         swarm_type: string
             This parameter controls the type of point that should be found. It
             can take one of the following values:
-
                 * 'expanders' : find a point that increases the safe set
                 * 'maximizers' : find a point that maximizes the objective
                                  function within the safe set.
                 * 'greedy' : retrieve an estimate of the best currently known
                              parameters (best lower bound).
-
         Returns
         -------
         global_best: np.array
@@ -1100,7 +1046,7 @@ class SafeOptSwarm(GaussianProcessOptimization):
 
             # this mask keeps track of the points that we have added in the
             # safe set to account for them when adding a new point
-            mask = np.zeros(m, dtype=np.bool)
+            mask = np.zeros(m, dtype=np.bool_)
             mask[:initial_safe] = True
 
             for j in range(n):
@@ -1126,7 +1072,7 @@ class SafeOptSwarm(GaussianProcessOptimization):
             return swarm.global_best.copy(), np.max(swarm.best_values)
 
         # compute the variance of the point picked
-        var = np.empty(len(self.gps), dtype=np.float)
+        var = np.empty(len(self.gps), dtype=np.float64)
         # max_std_dev = 0.
         for i, (gp, scaling) in enumerate(zip(self.gps, self.scaling)):
             var[i] = gp.predict_noiseless(swarm.global_best[None, :])[1]
@@ -1135,12 +1081,10 @@ class SafeOptSwarm(GaussianProcessOptimization):
 
     def optimize(self, ucb=False):
         """Run Safe Bayesian optimization and get the next parameters.
-
         Parameters
         ----------
         ucb: bool
             Whether to only compute maximizers (best upper bound).
-
         Returns
         -------
         x: np.array
@@ -1179,14 +1123,12 @@ class SafeOptSwarm(GaussianProcessOptimization):
     def get_maximum(self):
         """
         Return the current estimate for the maximum.
-
         Returns
         -------
         x : ndarray
             Location of the maximum
         y : 0darray
             Maximum value
-
         """
         maxi = np.argmax(self.gp.Y)
         return self.gp.X[maxi, :], self.gp.Y[maxi]
@@ -1194,19 +1136,16 @@ class SafeOptSwarm(GaussianProcessOptimization):
     def get_maximum_S(self, context=None):
         """
         Return the current estimate for the maximum.
-
         Parameters
         ----------
         context: ndarray
             A vector containing the current context
-
         Returns
         -------
         x - ndarray
             Location of the maximum
         y - 0darray
             Maximum value
-
         Notes
         -----
         Uses the current context and confidence intervals!
