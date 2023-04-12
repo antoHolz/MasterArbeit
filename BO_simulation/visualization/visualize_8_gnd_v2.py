@@ -20,28 +20,48 @@ def vis(argv):
 
     #### BO #########################################
     # XY-trajectory
-    for g in chges:
-        # ground truth  
-        k=np.arange(0,NUM_WP,1)
-        x_true=R * np.cos((k / NUM_WP) * (2 * np.pi) + np.pi / 2)
-        y_true=R * np.sin(2*((k / NUM_WP) * (2 * np.pi) + np.pi / 2))/2
-        plt.plot(x_true,y_true,label='true_value',linestyle='dashed')
+    plt.xlim([-0.34,0.34])
+    plt.ylim([-0.18,0.18])
+    for i in range(int((data_x.shape[0]+NUM_R)/NUM_CSTEPS)):
+        if(i==(int((data_x.shape[0]+NUM_R)/NUM_CSTEPS)-1)):
+            k=np.arange(0,NUM_WP,1)
+            x_true=R * np.cos((k / NUM_WP) * (2 * np.pi) + np.pi / 2)
+            y_true=R * np.sin(2*((k / NUM_WP) * (2 * np.pi) + np.pi / 2))/2
+            plt.plot(x_true,y_true,label='true_value',linestyle='dashed')
+            plt.plot(data_x.iloc[:,1][NUM_CSTEPS*i:NUM_CSTEPS*i+NUM_WP], 
+                    data_y.iloc[:,1][NUM_CSTEPS*i:NUM_CSTEPS*i+NUM_WP], 
+                    label=('round'+str(i) + '(best)'), color='purple', linewidth=2)
+        else:
+            plt.plot(data_x.iloc[:,1][NUM_CSTEPS*i:NUM_CSTEPS*i+NUM_WP], 
+                    data_y.iloc[:,1][NUM_CSTEPS*i:NUM_CSTEPS*i+NUM_WP], 
+                    label=('round'+str(i)), 
+                    color=([1-i/float(data_x.shape[0]/NUM_WP+0.5),i/(float(data_x.shape[0]/NUM_WP+0.5)),0,0.8-i/(float(data_x.shape[0]/NUM_WP+0.5)*3)]))
 
-        for i in range(g-start):
-            if(i==(g-start-1)):
-                plt.plot(data_x.iloc[:,1][NUM_CSTEPS*(start+i):NUM_CSTEPS*(start+i)+NUM_WP], 
-                        data_y.iloc[:,1][NUM_CSTEPS*(start+i):NUM_CSTEPS*(start+i)+NUM_WP], 
-                        label=('round'+str(i) + '(best)'), color='purple', linewidth=2)
-            else:
-                plt.plot(data_x.iloc[:,1][NUM_CSTEPS*(start+i):NUM_CSTEPS*(start+i)+NUM_WP], 
-                         data_y.iloc[:,1][NUM_CSTEPS*(start+i):NUM_CSTEPS*(start+i)+NUM_WP], 
-                        label=('round'+str(i)), 
-                        color=([1-i/float(g-start),i/(float(g-start)),0,0.8-i/(float(g-start)*3)]))
-        start=g
+    plt.savefig('../files/csvs/'+csv_name+'/trajectories.png')
+    plt.show()
+    # for g in chges:
+    #     # ground truth  
+    #     k=np.arange(0,NUM_WP,1)
+    #     x_true=R * np.cos((k / NUM_WP) * (2 * np.pi) + np.pi / 2)
+    #     y_true=R * np.sin(2*((k / NUM_WP) * (2 * np.pi) + np.pi / 2))/2
+    #     plt.plot(x_true,y_true,label='true_value',linestyle='dashed')
+
+    #     for i in range(g-start):
+    #         if(i==(g-start-1)):
+    #             plt.plot(data_x.iloc[:,1][NUM_CSTEPS*(start+i):NUM_CSTEPS*(start+i)+NUM_WP], 
+    #                     data_y.iloc[:,1][NUM_CSTEPS*(start+i):NUM_CSTEPS*(start+i)+NUM_WP], 
+    #                     label=('round'+str(i) + '(best)'), color='purple', linewidth=2)
+    #         else:
+    #             plt.plot(data_x.iloc[:,1][NUM_CSTEPS*(start+i):NUM_CSTEPS*(start+i)+NUM_WP], 
+    #                      data_y.iloc[:,1][NUM_CSTEPS*(start+i):NUM_CSTEPS*(start+i)+NUM_WP], 
+    #                     label=('round'+str(i)), 
+    #                     color=([1-i/float(g-start),i/(float(g-start)),0,0.8-i/(float(g-start)*3)]))
+    #     start=g
     
         #plt.legend()
-        plt.savefig('../files/csvs/'+csv_name+'/trajectories_until'+str(g)+'.png')
-        plt.show()
+        # plt.savefig('../files/csvs/'+csv_name+'/trajectories_until'+str(g)+'.png')
+    # ground truth  
+
 
     # Z-error
     data_z=pd.read_csv('../files/csvs/'+csv_name+'/z0.csv')
