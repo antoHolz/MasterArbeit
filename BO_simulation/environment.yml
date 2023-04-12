@@ -1,4 +1,4 @@
-name: ma_drones
+name: TVSO_drones
 channels:
   - conda-forge
   - https://conda.anaconda.org/conda-forge
