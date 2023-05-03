@@ -32,6 +32,7 @@ class Physics(Enum):
     PYB_DW = "pyb_dw"                   # PyBullet physics update with downwash
     PYB_GND_DRAG_DW = "pyb_gnd_drag_dw" # PyBullet physics update with ground effect, drag, and downwash
     PYB_CNT="pyb_cnt" #!!!
+    PYB_MC="pyb_mc" #!!!
 
 ################################################################################
 
@@ -272,7 +273,7 @@ class BaseAviary(gym.Env):
 
     def step(self,
              action, 
-             timestep
+             ts
              ):
         """Advances the environment by one simulation step.
 
@@ -369,7 +370,10 @@ class BaseAviary(gym.Env):
                     self._downwash(i)
                 elif self.PHYSICS == Physics.PYB_CNT: #!!!
                     self._physics(clipped_action[i, :], i)
-                    self._cont_timevariation( i, timestep)
+                    self._cont_timevariation( i, ts)
+                elif self.PHYSICS == Physics.PYB_MC: #!!!
+                    self._physics(clipped_action[i, :], i)
+                    self._masschg( i, ts)
             #### PyBullet computes the new state, unless Physics.DYN ###
             if self.PHYSICS != Physics.DYN:
                 p.stepSimulation(physicsClientId=self.CLIENT)
@@ -811,12 +815,43 @@ class BaseAviary(gym.Env):
                                      )
     def _cont_timevariation(self,
                             nth_drone,
-                            timestep
+                            ts
                             ):
-        t_force=np.clip(1e-7*timestep, -0.0130, 0.0130)
-        # if(t_force==0.0130 and timestep%5760==0):
+        #t_force=np.clip(1e-7*ts, -0.0130, 0.0130)
+        #t_force=np.clip(-0.01*(1-ts/1200), -0.010, 0)
+        if(ts>384):
+            t_force=-0.01385
+        elif(ts>372):
+            t_force=-0.0135
+        elif(ts>360):
+            t_force=-0.01325
+        elif(ts>180):
+            t_force=-0.0130
+        else:
+            t_force=0
+        # if(t_force==0.0130 and ts%5760==0):
         #     print("F at max")
-        i=0 #apply force on one rotor
+        i=4 #0-3 apply force on one rotor
+        p.applyExternalForce(self.DRONE_IDS[nth_drone],
+                                i,
+                                forceObj=[0, 0, t_force],
+                                posObj=[0, 0, 0],
+                                flags=p.LINK_FRAME,
+                                physicsClientId=self.CLIENT
+                                ) #!!!
+
+    def _masschg(self,nth_drone,
+                    ts
+                    ):
+        #t_force=np.clip(1e-7*ts, -0.0130, 0.0130)
+        #t_force=np.clip(-0.01*(1-ts/1200), -0.010, 0)
+        if(ts>120*6.9*20):
+            t_force=-0.2
+        else:
+            t_force=0
+        # if(t_force==0.0130 and ts%5760==0):
+        #     print("F at max")
+        i=4 #0-3 apply force on one rotor
         p.applyExternalForce(self.DRONE_IDS[nth_drone],
                                 i,
                                 forceObj=[0, 0, t_force],
